@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8080:80"
+    environment:
+      DATABASE_URL: postgresql://laravel_jenkins_test_user:Xdbhe5paAdQnb9vMPEiuO1SRDjwclDRK@dpg-d3iadgemcj7s7392uim0-a.oregon-postgres.render.com/laravel_jenkins_test
+    volumes:
+      - .:/var/www/html
