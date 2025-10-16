@@ -7,8 +7,8 @@ pipeline {
         IMAGE_TAG = "latest"
         DOCKER_REGISTRY = 'docker.io'               // Correct Docker Hub registry URL
         DOCKER_CREDENTIALS = 'docker_hub_creds'     // Jenkins stored credentials ID
-        RENDER_API_KEY = credentials('RENDER_API_KEY') // Render API key stored in Jenkins credentials
-        RENDER_SERVICE_ID = credentials('RENDER_SERVICE_ID') // Render service ID stored in Jenkins credentials
+        // Render Deploy Hook URL stored as Jenkins Secret Text credential (ID: RENDER_DEPLOY_HOOK)
+        RENDER_DEPLOY_HOOK = credentials('RENDER_DEPLOY_HOOK')
     }
 
     stages {
@@ -55,18 +55,16 @@ pipeline {
             post {
                 success {
                     script {
-                        // Guard: ensure service id is configured before attempting deploy
-                        if (!env.RENDER_SERVICE_ID || env.RENDER_SERVICE_ID == 'your-render-service-id') {
-                            echo 'RENDER_SERVICE_ID is not set correctly; skipping Render deployment.'
+                        // Guard: ensure deploy hook URL is configured before attempting deploy
+                        if (!env.RENDER_DEPLOY_HOOK || !env.RENDER_DEPLOY_HOOK.startsWith('http')) {
+                            echo 'RENDER_DEPLOY_HOOK is not configured; skipping Render deployment.'
                         } else {
-                            echo 'Docker push succeeded — triggering Render deployment...'
-                            // Trigger deploy via Render API without exposing secrets via Groovy interpolation
+                            echo 'Docker push succeeded — triggering Render deployment via Deploy Hook...'
+                            // Use the Render Deploy Hook URL (secret) to kick off a deployment.
+                            // Jenkins will mask the secret env var in logs.
                             sh '''
                                 set -e
-                                curl -sS -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
-                                  -H "Authorization: Bearer ${RENDER_API_KEY}" \
-                                  -H "Content-Type: application/json" \
-                                  -d '{"clearCache":false}'
+                                curl -sS -X POST "$RENDER_DEPLOY_HOOK"
                             '''
                             echo 'Render deployment triggered.'
                         }
