@@ -60,41 +60,57 @@ pipeline {
                             echo 'RENDER_DEPLOY_HOOK is not configured; skipping Render deployment.'
                         } else {
                             echo 'Docker push succeeded — triggering Render deployment via Deploy Hook...'
-                                                                                    // Use the Render Deploy Hook URL (secret) to kick off a deployment.
-                                                                                    // Jenkins will mask the secret env var in logs. Retry on 5xx and try GET fallback.
-                                                                                    sh '''
-                                                                                            set -e
-                                                                                            methods=(POST GET)
-                                                                                            max_retries=3
-                                                                                            for m in "${methods[@]}"; do
-                                                                                                attempt=1
-                                                                                                while [ $attempt -le $max_retries ]; do
-                                                                                                    http_code=$(curl -sS -o /tmp/render_deploy_resp.json -w "%{http_code}" -X "$m" "$RENDER_DEPLOY_HOOK")
-                                                                                                    echo "Render hook [$m] attempt $attempt status: $http_code"
-                                                                                                    # Success
-                                                                                                    if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
-                                                                                                        echo "Render response:"
-                                                                                                        cat /tmp/render_deploy_resp.json || true
-                                                                                                        echo "Render deployment triggered successfully."
-                                                                                                        exit 0
-                                                                                                    fi
-                                                                                                    # Retry on 5xx
-                                                                                                    if [ "$http_code" -ge 500 ]; then
-                                                                                                        echo "Server error from Render. Retrying in $((attempt*5))s..."
-                                                                                                        sleep $((attempt*5))
-                                                                                                        attempt=$((attempt+1))
-                                                                                                        continue
-                                                                                                    fi
-                                                                                                    # Client errors -> fail immediately
-                                                                                                    echo "Render deploy hook returned an error. Response body:"
-                                                                                                    cat /tmp/render_deploy_resp.json || true
-                                                                                                    exit 1
-                                                                                                done
-                                                                                            done
-                                                                                            echo "All attempts to trigger Render deploy failed."
-                                                                                            cat /tmp/render_deploy_resp.json || true
-                                                                                            exit 1
-                                                                                    '''
+                                                                                                                // Use the Render Deploy Hook URL (secret) to kick off a deployment.
+                                                                                                                // Jenkins will mask the secret env var in logs. POSIX sh compatible with retry and GET fallback.
+                                                                                                                sh '''
+                                                                                                                        set -e
+                                                                                                                        max_retries=3
+                                                                                                                        # Try POST first with retries
+                                                                                                                        attempt_post=1
+                                                                                                                        while [ "$attempt_post" -le "$max_retries" ]; do
+                                                                                                                            http_code=$(curl -sS -o /tmp/render_deploy_resp.json -w "%{http_code}" -X POST "$RENDER_DEPLOY_HOOK")
+                                                                                                                            echo "Render hook [POST] attempt $attempt_post status: $http_code"
+                                                                                                                            if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+                                                                                                                                echo "Render response:"; cat /tmp/render_deploy_resp.json || true
+                                                                                                                                echo "Render deployment triggered successfully."
+                                                                                                                                exit 0
+                                                                                                                            fi
+                                                                                                                            if [ "$http_code" -ge 500 ]; then
+                                                                                                                                delay=$((attempt_post*5))
+                                                                                                                                echo "Server error from Render. Retrying in ${delay}s..."
+                                                                                                                                sleep "$delay"
+                                                                                                                                attempt_post=$((attempt_post+1))
+                                                                                                                                continue
+                                                                                                                            fi
+                                                                                                                            echo "Render deploy hook returned an error. Response body:"; cat /tmp/render_deploy_resp.json || true
+                                                                                                                            exit 1
+                                                                                                                        done
+
+                                                                                                                        # Fallback: try GET with retries
+                                                                                                                        attempt_get=1
+                                                                                                                        while [ "$attempt_get" -le "$max_retries" ]; do
+                                                                                                                            http_code=$(curl -sS -o /tmp/render_deploy_resp.json -w "%{http_code}" -X GET "$RENDER_DEPLOY_HOOK")
+                                                                                                                            echo "Render hook [GET] attempt $attempt_get status: $http_code"
+                                                                                                                            if [ "$http_code" -ge 200 ] && [ "$http_code" -lt 300 ]; then
+                                                                                                                                echo "Render response:"; cat /tmp/render_deploy_resp.json || true
+                                                                                                                                echo "Render deployment triggered successfully."
+                                                                                                                                exit 0
+                                                                                                                            fi
+                                                                                                                            if [ "$http_code" -ge 500 ]; then
+                                                                                                                                delay=$((attempt_get*5))
+                                                                                                                                echo "Server error from Render. Retrying in ${delay}s..."
+                                                                                                                                sleep "$delay"
+                                                                                                                                attempt_get=$((attempt_get+1))
+                                                                                                                                continue
+                                                                                                                            fi
+                                                                                                                            echo "Render deploy hook returned an error. Response body:"; cat /tmp/render_deploy_resp.json || true
+                                                                                                                            exit 1
+                                                                                                                        done
+
+                                                                                                                        echo "All attempts to trigger Render deploy failed."
+                                                                                                                        cat /tmp/render_deploy_resp.json || true
+                                                                                                                        exit 1
+                                                                                                                '''
                         }
                     }
                 }
