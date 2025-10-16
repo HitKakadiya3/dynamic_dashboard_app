@@ -52,24 +52,28 @@ pipeline {
                     sh "docker push ${IMAGE_NAME}:latest"
                 }
             }
-        }
-
-        stage('Deploy to Render') {
-            steps {
-                script {
-                    echo 'Deploying to Render hosting...'
-                    
-                    // Deploy using Render API
-                    sh '''
-                        curl -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
-                        -H "Authorization: Bearer ${RENDER_API_KEY}" \
-                        -H "Content-Type: application/json" \
-                        -d "{
-                            \\"clearCache\\": false
-                        }"
-                    '''
-                    
-                    echo 'Deployment triggered on Render successfully!'
+            post {
+                success {
+                    script {
+                        // Guard: ensure service id is configured before attempting deploy
+                        if (!env.RENDER_SERVICE_ID || env.RENDER_SERVICE_ID == 'your-render-service-id') {
+                            echo 'RENDER_SERVICE_ID is not set correctly; skipping Render deployment.'
+                        } else {
+                            echo 'Docker push succeeded — triggering Render deployment...'
+                            // Trigger deploy via Render API without exposing secrets via Groovy interpolation
+                            sh '''
+                                set -e
+                                curl -sS -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+                                  -H "Authorization: Bearer ${RENDER_API_KEY}" \
+                                  -H "Content-Type: application/json" \
+                                  -d '{"clearCache":false}'
+                            '''
+                            echo 'Render deployment triggered.'
+                        }
+                    }
+                }
+                failure {
+                    echo 'Docker push failed — skipping Render deployment.'
                 }
             }
         }
