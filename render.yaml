@@ -1,0 +1,80 @@
+# render.yaml - Advanced Render configuration
+# This file allows you to define your infrastructure as code
+
+services:
+  - type: web
+    name: laravel-dynamic-dashboard
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon # Choose: oregon, frankfurt, singapore
+    plan: free # Options: free, starter, standard, pro, pro_plus
+    branch: main
+    healthCheckPath: /up
+    
+    # Environment variables
+    envVars:
+      - key: APP_NAME
+        value: Laravel Dynamic Dashboard
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: false
+      - key: APP_KEY
+        generateValue: true # Render will auto-generate
+      - key: APP_URL
+        value: https://laravel-dynamic-dashboard.onrender.com
+      
+      # Database configuration
+      - key: DATABASE_URL
+        value: postgresql://laravel_jenkins_test_user:Xdbhe5paAdQnb9vMPEiuO1SRDjwclDRK@dpg-d3iadgemcj7s7392uim0-a.oregon-postgres.render.com/laravel_jenkins_test
+      
+      # Cache and session
+      - key: CACHE_DRIVER
+        value: file
+      - key: SESSION_DRIVER
+        value: file
+      - key: QUEUE_CONNECTION
+        value: sync
+      
+      # Logging
+      - key: LOG_CHANNEL
+        value: stack
+      - key: LOG_LEVEL
+        value: info
+        
+      # Broadcasting
+      - key: BROADCAST_DRIVER
+        value: log
+      
+      # Filesystem
+      - key: FILESYSTEM_DISK
+        value: local
+    
+    # Auto-deploy settings
+    autoDeploy: true # Deploy automatically on git push
+    
+    # Build command (optional)
+    buildCommand: |
+      composer install --no-dev --optimize-autoloader
+      php artisan config:cache
+      php artisan route:cache
+      php artisan view:cache
+    
+    # Start command
+    startCommand: apache2-foreground
+    
+    # Scaling (for paid plans)
+    numInstances: 1
+    
+    # Health check
+    healthCheckPath: /up
+    
+    # Custom domains (optional)
+    # domains:
+    #   - laravel-app.yourdomain.com
+    
+    # Persistent storage (for file uploads, logs, etc.)
+    disk:
+      name: laravel-storage
+      mountPath: /var/www/html/storage
+      sizeGB: 1 # Only available on paid plans
