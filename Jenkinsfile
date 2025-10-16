@@ -3,7 +3,8 @@ pipeline {
 
     environment {
         IMAGE_NAME = 'hitendra369/laravel_dynamic_dashboard' // Docker image name
-        IMAGE_TAG = "${env.BUILD_NUMBER}"             // Tag with build number
+        // IMAGE_TAG = "${env.BUILD_NUMBER}"             // Tag with build number
+        IMAGE_TAG = "latest"
         DOCKER_REGISTRY = 'docker.io'               // Correct Docker Hub registry URL
         DOCKER_CREDENTIALS = 'docker_hub_creds'     // Jenkins stored credentials ID
         RENDER_API_KEY = credentials('render_api_key') // Render API key stored in Jenkins credentials
