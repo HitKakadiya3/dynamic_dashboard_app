@@ -4,8 +4,8 @@ pipeline {
     environment {
         IMAGE_NAME = 'hitendra369/laravel_dynamic_dashboard' // Docker image name
         IMAGE_TAG = "${env.BUILD_NUMBER}"             // Tag with build number
-        DOCKER_REGISTRY = 'hitendra369'    // Docker Hub username
-        DOCKER_CREDENTIALS = 'docker_hub_creds'      // Jenkins stored credentials ID
+        DOCKER_REGISTRY = 'docker.io'               // Correct Docker Hub registry URL
+        DOCKER_CREDENTIALS = 'docker_hub_creds'     // Jenkins stored credentials ID
     }
 
     stages {
@@ -30,7 +30,10 @@ pipeline {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: "${DOCKER_CREDENTIALS}", usernameVariable: 'DOCKER_USER', passwordVariable: 'DOCKER_PASS')]) {
-                        sh "echo $DOCKER_PASS | docker login -u $DOCKER_USER --password-stdin ${DOCKER_REGISTRY}"
+                        // Secure way to pass password without Groovy interpolation
+                        sh '''
+                            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+                        '''
                     }
                 }
             }
@@ -39,8 +42,8 @@ pipeline {
         stage('Push Docker Image') {
             steps {
                 script {
-                    sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
-                    sh "docker push ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker tag ${IMAGE_NAME}:${IMAGE_TAG} ${IMAGE_NAME}:${IMAGE_TAG}"
+                    sh "docker push ${IMAGE_NAME}:${IMAGE_TAG}"
                 }
             }
         }
@@ -49,7 +52,6 @@ pipeline {
             steps {
                 echo 'Cleaning up local images...'
                 sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
-                sh "docker rmi ${DOCKER_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG} || true"
             }
         }
     }
