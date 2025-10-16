@@ -7,8 +7,8 @@ pipeline {
         IMAGE_TAG = "latest"
         DOCKER_REGISTRY = 'docker.io'               // Correct Docker Hub registry URL
         DOCKER_CREDENTIALS = 'docker_hub_creds'     // Jenkins stored credentials ID
-        RENDER_API_KEY = credentials('render_api_key') // Render API key stored in Jenkins credentials
-        RENDER_SERVICE_ID = 'your-render-service-id'   // Replace with your actual Render service ID
+        // RENDER_API_KEY = credentials('render_api_key') // Render API key stored in Jenkins credentials
+        // RENDER_SERVICE_ID = 'your-render-service-id'   // Replace with your actual Render service ID
     }
 
     stages {
@@ -54,25 +54,25 @@ pipeline {
             }
         }
 
-        stage('Deploy to Render') {
-            steps {
-                script {
-                    echo 'Deploying to Render hosting...'
+        // stage('Deploy to Render') {
+        //     steps {
+        //         script {
+        //             echo 'Deploying to Render hosting...'
                     
-                    // Deploy using Render API
-                    sh '''
-                        curl -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
-                        -H "Authorization: Bearer ${RENDER_API_KEY}" \
-                        -H "Content-Type: application/json" \
-                        -d "{
-                            \\"clearCache\\": false
-                        }"
-                    '''
+        //             // Deploy using Render API
+        //             sh '''
+        //                 curl -X POST "https://api.render.com/v1/services/${RENDER_SERVICE_ID}/deploys" \
+        //                 -H "Authorization: Bearer ${RENDER_API_KEY}" \
+        //                 -H "Content-Type: application/json" \
+        //                 -d "{
+        //                     \\"clearCache\\": false
+        //                 }"
+        //             '''
                     
-                    echo 'Deployment triggered on Render successfully!'
-                }
-            }
-        }
+        //             echo 'Deployment triggered on Render successfully!'
+        //         }
+        //     }
+        // }
 
         stage('Clean Up') {
             steps {
