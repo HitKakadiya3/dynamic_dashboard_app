@@ -3,13 +3,13 @@
 
 services:
   - type: web
-    name: laravel-dynamic-dashboard
+    name: laravel-dynamic-dashboard-latest
     runtime: docker
     dockerfilePath: ./Dockerfile
     region: oregon # Choose: oregon, frankfurt, singapore
     plan: free # Options: free, starter, standard, pro, pro_plus
     branch: main
-    healthCheckPath: /up
+  healthCheckPath: /up
     
     # Environment variables
     envVars:
@@ -22,7 +22,11 @@ services:
       - key: APP_KEY
         generateValue: true # Render will auto-generate
       - key: APP_URL
-        value: https://laravel-dynamic-dashboard.onrender.com
+        value: https://laravel-dynamic-dashboard-latest.onrender.com
+
+      # Ensure Laravel uses Postgres in production
+      - key: DB_CONNECTION
+        value: pgsql
       
       # Database configuration
       - key: DATABASE_URL
@@ -60,14 +64,14 @@ services:
       php artisan route:cache
       php artisan view:cache
     
-    # Start command
-    startCommand: apache2-foreground
+  # Start command: run migrations before Apache starts
+  startCommand: bash -lc 'php artisan migrate --force && apache2-foreground'
     
     # Scaling (for paid plans)
     numInstances: 1
     
-    # Health check
-    healthCheckPath: /up
+  # Health check
+  healthCheckPath: /up
     
     # Custom domains (optional)
     # domains:
