@@ -9,6 +9,10 @@ pipeline {
         DOCKER_CREDENTIALS = 'docker_hub_creds'     // Jenkins stored credentials ID
         // Render Deploy Hook URL stored as Jenkins Secret Text credential (ID: RENDER_DEPLOY_HOOK)
         RENDER_DEPLOY_HOOK = credentials('RENDER_DEPLOY_HOOK')
+        // Aeonfree deployment - configure these in Jenkins (leave empty to skip)
+        AEONFREE_HOST = ''                         // e.g. ftp.example.com or host.example.com
+        AEONFREE_PATH = ''                         // remote path where to upload the artifact
+    // Note: Credential IDs are stored in Jenkins credentials store. We will bind them via withCredentials in the deploy stage.
     }
 
     stages {
@@ -125,6 +129,69 @@ pipeline {
                 echo 'Cleaning up local images...'
                 sh "docker rmi ${IMAGE_NAME}:${IMAGE_TAG} || true"
                 sh "docker rmi ${IMAGE_NAME}:latest || true"
+            }
+        }
+        
+        stage('Deploy to Aeonfree') {
+            steps {
+                script {
+                    // Skip if host not configured
+                    if (!env.AEONFREE_HOST || env.AEONFREE_HOST.trim() == '') {
+                        echo 'AEONFREE_HOST not configured; skipping Aeonfree deployment.'
+                    } else {
+                        echo "Preparing deploy artifact for ${env.AEONFREE_HOST}..."
+                        // Create a zip of the repository excluding large or environment-specific folders
+                        sh '''
+                            set -e
+                            rm -f /tmp/deploy.zip || true
+                            zip -r /tmp/deploy.zip . -x ".git/*" "vendor/*" "node_modules/*" "storage/*" "tests/*" "build/*" || true
+                            ls -lh /tmp/deploy.zip || true
+                        '''
+
+                        // Try SSH deploy first by attempting to bind the Jenkins SSH credential (id: 'aeonfree_ssh')
+                        def sshAttempted = false
+                        try {
+                            echo 'Attempting to bind Jenkins SSH credential id "aeonfree_ssh"...'
+                            withCredentials([sshUserPrivateKey(credentialsId: 'aeonfree_ssh', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER')]) {
+                                sshAttempted = true
+                                echo 'Attempting SSH deploy to Aeonfree...'
+                                sh '''
+                                    set -e
+                                    chmod 600 "$SSH_KEY" || true
+                                    # ensure remote dir exists (ssh host key check disabled for automation)
+                                    ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@${AEONFREE_HOST}" "mkdir -p ${AEONFREE_PATH} || true"
+                                    scp -o StrictHostKeyChecking=no -i "$SSH_KEY" /tmp/deploy.zip "$SSH_USER@${AEONFREE_HOST}:${AEONFREE_PATH}/deploy.zip"
+                                '''
+                            }
+                        } catch (err) {
+                            echo "SSH credential bind failed or SSH deploy failed: ${err}. Will attempt FTP fallback."
+                        }
+
+                        if (!sshAttempted) {
+                            // Attempt FTP fallback by binding username/password credential id 'AEONFREE_FTP_CREDENTIALS'
+                            try {
+                                echo 'Attempting FTP deploy using Jenkins credential id "AEONFREE_FTP_CREDENTIALS"...'
+                                withCredentials([usernamePassword(credentialsId: 'AEONFREE_FTP_CREDENTIALS', usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
+                                    sh '''
+                                        set -e
+                                        # Upload using curl (ensure curl supports FTP on the agent)
+                                        curl -T /tmp/deploy.zip "ftp://$FTP_USER:$FTP_PASS@${AEONFREE_HOST}/${AEONFREE_PATH}/deploy.zip"
+                                    '''
+                                }
+                            } catch (err2) {
+                                echo "FTP credential bind failed or FTP upload failed: ${err2}. Skipping Aeonfree deploy."
+                            }
+                        }
+                    }
+                }
+            }
+            post {
+                success {
+                    echo 'Aeonfree deploy stage finished (success or uploaded).'
+                }
+                failure {
+                    echo 'Aeonfree deploy stage failed.'
+                }
             }
         }
     }
