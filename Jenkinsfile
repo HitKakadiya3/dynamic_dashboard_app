@@ -168,24 +168,25 @@ pipeline {
                             echo "Archive created successfully"
                         // Install zip if not available
                         script {
+                            def checkPackageManager = { manager ->
+                                return sh(script: "which ${manager}", returnStatus: true) == 0
+                            }
+                            
                             def hasZip = sh(script: 'which zip', returnStatus: true) == 0
                             if (hasZip) {
                                 sh 'echo "Zip is already installed"'
                             } else {
-                                sh '''
-                                    echo "Installing zip..."
-                                    if [ -x "$(command -v apt-get)" ]; then
+                                echo "Installing zip..."
+                                if (checkPackageManager('apt-get')) {
+                                    sh 'apt-get update && apt-get install -y zip'
+                                } else if (checkPackageManager('yum')) {
+                                    sh 'yum install -y zip'
+                                } else if (checkPackageManager('apk')) {
+                                    sh 'apk add --no-cache zip'
+                                } else {
+                                    error 'No supported package manager found. Please install zip manually.'
+                                }
                                 
-                                        apt-get update && apt-get install -y zip
-                                    elif [ -x "$(command -v yum)" ]; then
-                                        yum install -y zip
-                                    elif [ -x "$(command -v apk)" ]; then
-                                        apk add --no-cache zip
-                                    else
-                                        echo "No supported package manager found. Please install zip manually."
-                                        exit 1
-                                    fi
-                                '''
                             }
                             fi
                         '''
