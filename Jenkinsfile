@@ -274,16 +274,19 @@ pipeline {
                                         }
                                         ?>' > /tmp/extract.php
 
-                                        # Create lftp script for zip upload
-                                        echo "set ssl:verify-certificate no
+                                        # Create lftp script with debug settings
+                                        echo "debug 3
+                                        set ssl:verify-certificate no
                                         set ftp:ssl-allow no
                                         set net:max-retries 3
                                         set net:timeout 60
+                                        set xfer:log yes
+                                        set xfer:show-status yes
                                         open ftp://${AEONFREE_HOST}
                                         user ${FTP_USER} ${FTP_PASS}
                                         cd ${AEONFREE_PATH}
-                                        put -v /tmp/deploy.zip -o deploy.zip
-                                        put -v /tmp/extract.php -o extract.php
+                                        put /tmp/deploy.zip -o deploy.zip
+                                        put /tmp/extract.php -o extract.php
                                         quit" > /tmp/lftp_script
                                         
                                         # Show lftp version and capabilities
@@ -396,8 +399,11 @@ pipeline {
                                         rm -f /tmp/lftp_script /tmp/extract.php
                                         
                                         # Clean up remote extract.php
-                                        echo "set ssl:verify-certificate no
+                                        echo "debug 3
+                                        set ssl:verify-certificate no
                                         set ftp:ssl-allow no
+                                        set net:max-retries 3
+                                        set net:timeout 60
                                         open ftp://${AEONFREE_HOST}
                                         user ${FTP_USER} ${FTP_PASS}
                                         cd ${AEONFREE_PATH}
