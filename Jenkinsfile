@@ -10,7 +10,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                echo 'Checking out repository...'
+                echo '📦 Checking out repository...'
                 git branch: 'main', url: 'https://github.com/HitKakadiya3/dynamic_dashboard_app.git'
             }
         }
@@ -18,8 +18,9 @@ pipeline {
         stage('Install FTP Client') {
             steps {
                 sh '''
-                    echo "Installing lftp if not found..."
+                    echo "🔧 Checking for lftp..."
                     if ! command -v lftp >/dev/null 2>&1; then
+                        echo "Installing lftp..."
                         if command -v apt-get >/dev/null 2>&1; then
                             apt-get update && apt-get install -y lftp
                         elif command -v yum >/dev/null 2>&1; then
@@ -31,6 +32,7 @@ pipeline {
                             exit 1
                         fi
                     fi
+                    echo "✅ lftp is ready."
                 '''
             }
         }
@@ -39,19 +41,19 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS}", usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
                     sh '''
-                        echo "Starting FTP deployment..."
+                        echo "🚀 Starting FTP deployment..."
 
-                        # Ensure vendor and node_modules exist if needed
-                        [ -d vendor ] && echo "✅ vendor folder found"
-                        [ -d node_modules ] && echo "✅ node_modules folder found"
-                        [ -f .env ] && echo "✅ .env file found"
+                        # Verify important folders
+                        [ -f .env ] && echo "✅ Found .env file"
+                        [ -d vendor ] && echo "✅ Found vendor folder"
+                        [ -d node_modules ] && echo "✅ Found node_modules folder"
 
-                        # Create lftp mirror script
+                        # Create LFTP script for mirroring
                         cat > /tmp/lftp_mirror_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
-set net:max-retries 2
-set net:timeout 30
+set net:max-retries 3
+set net:timeout 60
 open ftp://${AEONFREE_HOST}
 user ${FTP_USER} ${FTP_PASS}
 mirror -R \
@@ -67,10 +69,10 @@ mirror -R \
 bye
 EOF
 
-                        echo "Running lftp mirror..."
+                        echo "📂 Uploading all files to FTP (including .env, vendor, node_modules)..."
                         lftp -f /tmp/lftp_mirror_script
 
-                        echo "✅ FTP deployment complete!"
+                        echo "✅ Deployment completed successfully!"
                     '''
                 }
             }
@@ -79,7 +81,7 @@ EOF
 
     post {
         success {
-            echo "✅ All files and folders uploaded to FTP successfully!"
+            echo "✅ FTP deployment finished successfully — all files uploaded!"
         }
         failure {
             echo "❌ FTP deployment failed!"
