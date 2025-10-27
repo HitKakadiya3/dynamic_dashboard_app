@@ -274,7 +274,7 @@ pipeline {
                                         }
                                         ?>' > /tmp/extract.php
 
-                                        # Create lftp script with debug settings
+                                        # Create lftp script for upload and extraction
                                         echo "debug 3
                                         set ssl:verify-certificate no
                                         set ftp:ssl-allow no
@@ -285,8 +285,12 @@ pipeline {
                                         open ftp://${AEONFREE_HOST}
                                         user ${FTP_USER} ${FTP_PASS}
                                         cd ${AEONFREE_PATH}
+                                        # Upload the zip file
                                         put /tmp/deploy.zip -o deploy.zip
-                                        put /tmp/extract.php -o extract.php
+                                        # Execute unzip command
+                                        quote SITE UNZIP deploy.zip
+                                        # Remove the zip file after extraction
+                                        rm -f deploy.zip
                                         quit" > /tmp/lftp_script
                                         
                                         # Show lftp version and capabilities
@@ -300,100 +304,52 @@ pipeline {
                                             exit 1
                                         fi
                                         
-                                        # Create extraction script
-                                        echo "Creating extraction script..."
-                                        echo '<?php
-                                        header("Content-Type: text/plain");
-                                        error_reporting(E_ALL);
-                                        ini_set("display_errors", 1);
+                                        echo "Attempting upload and extraction..."
+                                        max_retries=3
+                                        attempt=1
                                         
-                                        echo "Starting extraction process...\n";
+                                        while [ $attempt -le $max_retries ]; do
+                                            echo "Attempt $attempt of $max_retries..."
+                                            
+                                            if lftp -f /tmp/lftp_script; then
+                                                echo "Upload successful!"
+                                                break
+                                            fi
+                                            
+                                            if [ $attempt -eq $max_retries ]; then
+                                                echo "All upload attempts failed"
+                                                exit 1
+                                            fi
+                                            
+                                            echo "Upload attempt failed. Waiting before retry..."
+                                            sleep 10
+                                            attempt=$((attempt + 1))
+                                        done
                                         
-                                        if (!file_exists("deploy.zip")) {
-                                            echo "Error: deploy.zip not found\n";
-                                            exit(1);
-                                        }
-                                        
-                                        echo "Found deploy.zip\n";
-                                        
-                                        $zip = new ZipArchive;
-                                        $res = $zip->open("deploy.zip");
-                                        if ($res === TRUE) {
-                                            echo "ZIP file opened successfully\n";
-                                            
-                                            $totalFiles = $zip->numFiles;
-                                            echo "Total files in ZIP: " . $totalFiles . "\n";
-                                            
-                                            if (!$zip->extractTo(".")) {
-                                                echo "Failed to extract files\n";
-                                                $zip->close();
-                                                exit(1);
-                                            }
-                                            
-                                            echo "Files extracted successfully\n";
-                                            $zip->close();
-                                            echo "ZIP file closed\n";
-                                            
-                                            if (unlink("deploy.zip")) {
-                                                echo "ZIP file deleted\n";
-                                            } else {
-                                                echo "Warning: Could not delete ZIP file\n";
-                                            }
-                                            
-                                            echo "Extraction complete - Total files extracted: " . $totalFiles;
-                                        } else {
-                                            echo "Failed to open ZIP (error code: " . $res . ")\n";
-                                            exit(1);
-                                        }
-                                        ?>' > /tmp/extract.php
-                                        
-                                        # Upload the extraction script
-                                        echo "set ssl:verify-certificate no
+                                        # Try shell-based unzip as fallback
+                                        echo "Attempting shell-based extraction..."
+                                        echo "debug 3
+                                        set ssl:verify-certificate no
                                         set ftp:ssl-allow no
                                         set net:max-retries 3
                                         set net:timeout 60
                                         open ftp://${AEONFREE_HOST}
                                         user ${FTP_USER} ${FTP_PASS}
                                         cd ${AEONFREE_PATH}
-                                        put /tmp/extract.php -o extract.php
-                                        quit" > /tmp/lftp_script_extract
+                                        # Try to use shell unzip command
+                                        quote SITE EXEC unzip -o deploy.zip
+                                        # Remove the zip file after extraction
+                                        rm -f deploy.zip
+                                        quit" > /tmp/lftp_extract
                                         
-                                        echo "Uploading extraction script..."
-                                        if ! lftp -f /tmp/lftp_script_extract; then
-                                            echo "Failed to upload extraction script!"
-                                            exit 1
+                                        if ! lftp -f /tmp/lftp_extract; then
+                                            echo "Warning: Shell-based extraction failed. Files are uploaded but may need manual extraction."
+                                        else
+                                            echo "Shell-based extraction completed successfully."
                                         fi
                                         
-                                        echo "Waiting for files to settle..."
-                                        sleep 5
-                                        
-                                        echo "Attempting extraction..."
-                                        # Execute extraction with retries
-                                        max_retries=3
-                                        attempt=1
-                                        success=0
-                                        
-                                        while [ $attempt -le $max_retries ]; do
-                                            echo "Extraction attempt $attempt of $max_retries..."
-                                            
-                                            response=$(curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
-                                            echo "Server response: $response"
-                                            
-                                            if [[ "$response" == *"Extraction complete"* ]]; then
-                                                echo "Extraction successful!"
-                                                success=1
-                                                break
-                                            fi
-                                            
-                                            echo "Extraction attempt $attempt failed. Waiting before retry..."
-                                            sleep 10
-                                            attempt=$((attempt + 1))
-                                        done
-                                        
-                                        if [ $success -eq 0 ]; then
-                                            echo "All extraction attempts failed"
-                                            exit 1
-                                        fi
+                                        # Clean up temporary files
+                                        rm -f /tmp/lftp_script /tmp/lftp_extract
                                         
                                         # Clean up extraction script
                                         echo "set ssl:verify-certificate no
