@@ -12,7 +12,7 @@ pipeline {
         // Aeonfree deployment - configure these in Jenkins (leave empty to skip)
         AEONFREE_HOST = ''                         // ftp.example.com or host.example.com
         AEONFREE_PATH = ''                         // remote path where to upload the artifact
-    // Note: Credential IDs are stored in Jenkins credentials store. We will bind them via withCredentials in the deploy stage.
+    // Note: Credential IDs are stored in  Jenkins credentials store. We will bind them via withCredentials in the deploy stage.
     }
 
     stages {
