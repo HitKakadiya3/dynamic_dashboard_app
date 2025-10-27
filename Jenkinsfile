@@ -316,34 +316,41 @@ pipeline {
                                         echo "Verifying archive contents..."
                                         
                                         # Check for included important files
-                                        echo "Checking for key files:"
-                                        echo "Creating file list..."
+                                        echo "Checking key files..."
                                         unzip -l /tmp/deploy.zip > /tmp/zip_contents.txt
                                         
                                         echo "Checking for vendor files..."
-                                        grep "vendor/autoload.php" /tmp/zip_contents.txt || echo "No vendor/autoload.php found"
+                                        grep 'vendor/autoload.php' /tmp/zip_contents.txt || echo "No vendor/autoload.php found"
                                         
                                         echo "Checking for node_modules..."
-                                        grep "node_modules/" /tmp/zip_contents.txt || echo "No node_modules found"
+                                        grep 'node_modules/' /tmp/zip_contents.txt || echo "No node_modules found"
                                         
                                         echo "Checking for .env file..."
-                                        grep ".env$" /tmp/zip_contents.txt || echo "No .env found"
+                                        grep '.env' /tmp/zip_contents.txt || echo "No .env found"
                                         
                                         # Verify no git files are included
                                         echo "Verifying no git files are included:"
-                                        if grep -E "\.git/|\.gitignore|\.gitattributes|\.github/|\.gitlab/" /tmp/zip_contents.txt; then
+                                        git_files=$(grep -E '.git/|.gitignore|.gitattributes|.github/|.gitlab/' /tmp/zip_contents.txt || true)
+                                        if [ ! -z "$git_files" ]; then
                                             echo "ERROR: Git-related files found in archive!"
                                             echo "Found git files:"
-                                            grep -E '.git/|.gitignore|.gitattributes|.github/|.gitlab/' /tmp/zip_contents.txt
-                                            echo "Cleaning up temporary files..."
+                                            echo "ERROR: Git-related files found in archive:"
+                                            echo "$git_files"
                                             rm -f /tmp/zip_contents.txt
                                             exit 1
                                         else
                                             echo "Confirmed: No git-related files in archive"
                                         fi
                                         
+                                        # Show summary of archive
+                                        echo "Archive contents summary:"
+                                        echo "----------------------------------------"
+                                        unzip -l /tmp/deploy.zip | head -n 5
+                                        echo "..."
+                                        unzip -l /tmp/deploy.zip | tail -n 3
+                                        echo "----------------------------------------"
+                                        
                                         # Clean up
-                                        echo "Cleaning up temporary files..."
                                         rm -f /tmp/zip_contents.txt
                                         
                                         # Check zip file size
