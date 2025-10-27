@@ -168,7 +168,10 @@ pipeline {
                             echo "Archive created successfully"
                         // Install zip if not available
                         sh '''
-                            if ! command -v zip >/dev/null 2>&1; then
+                            if command -v zip >/dev/null 2>&1; then
+                                echo "Zip is already installed"
+                            else
+                                echo "Installing zip..."
                                 if command -v apt-get >/dev/null 2>&1; then
                                     apt-get update && apt-get install -y zip
                                 elif command -v yum >/dev/null 2>&1; then
