@@ -280,56 +280,132 @@ pipeline {
                                         error_reporting(E_ALL);
                                         ini_set("display_errors", 1);
                                         
-                                        function checkZipFile() {
-                                            if (!file_exists("deploy.zip")) {
-                                                echo "ERROR: deploy.zip not found";
-                                                return false;
-                                            }
-                                            return true;
+                                        function debug($message) {
+                                            echo date("Y-m-d H:i:s") . " - " . $message . "\\n";
                                         }
                                         
-                                        function extractZip() {
-                                            $zip = new ZipArchive();
-                                            $res = $zip->open("deploy.zip");
-                                            if ($res !== TRUE) {
-                                                echo "ERROR: Failed to open ZIP (error code: " . $res . ")";
-                                                return false;
-                                            }
+                                        function checkPermissions() {
+                                            $currentDir = getcwd();
+                                            debug("Current directory: " . $currentDir);
+                                            debug("Current user: " . get_current_user());
+                                            debug("Directory writable: " . (is_writable($currentDir) ? "yes" : "no"));
                                             
-                                            if (!$zip->extractTo(".")) {
-                                                $zip->close();
-                                                echo "ERROR: Failed to extract files";
-                                                return false;
-                                            }
-                                            
-                                            $zip->close();
-                                            return true;
-                                        }
-                                        
-                                        function cleanup() {
-                                            if (file_exists("deploy.zip")) {
-                                                if (!unlink("deploy.zip")) {
-                                                    echo "WARNING: Could not delete deploy.zip";
+                                            if (!is_writable($currentDir)) {
+                                                chmod($currentDir, 0755);
+                                                debug("Attempted to set directory permissions to 755");
+                                                if (!is_writable($currentDir)) {
+                                                    debug("ERROR: Directory still not writable after chmod");
                                                     return false;
                                                 }
                                             }
                                             return true;
                                         }
                                         
+                                        function checkZipFile() {
+                                            if (!file_exists("deploy.zip")) {
+                                                debug("ERROR: deploy.zip not found");
+                                                return false;
+                                            }
+                                            $size = filesize("deploy.zip");
+                                            debug("ZIP file size: " . $size . " bytes");
+                                            if ($size === 0) {
+                                                debug("ERROR: deploy.zip is empty");
+                                                return false;
+                                            }
+                                            return true;
+                                        }
+                                        
+                                        function listCurrentFiles() {
+                                            debug("Current directory contents:");
+                                            $files = scandir(".");
+                                            foreach ($files as $file) {
+                                                if ($file != "." && $file != "..") {
+                                                    $perms = substr(sprintf("%o", fileperms("./" . $file)), -4);
+                                                    debug($file . " (permissions: " . $perms . ")");
+                                                }
+                                            }
+                                        }
+                                        
+                                        function extractZip() {
+                                            debug("Starting ZIP extraction...");
+                                            $zip = new ZipArchive();
+                                            $res = $zip->open("deploy.zip");
+                                            if ($res !== TRUE) {
+                                                debug("ERROR: Failed to open ZIP (error code: " . $res . ")");
+                                                return false;
+                                            }
+                                            
+                                            debug("ZIP opened successfully. File count: " . $zip->numFiles);
+                                            
+                                            // First check if we can extract
+                                            for ($i = 0; $i < $zip->numFiles; $i++) {
+                                                $filename = $zip->getNameIndex($i);
+                                                $dirname = dirname($filename);
+                                                if ($dirname !== "." && !is_dir($dirname)) {
+                                                    if (!mkdir($dirname, 0755, true)) {
+                                                        debug("ERROR: Could not create directory: " . $dirname);
+                                                        $zip->close();
+                                                        return false;
+                                                    }
+                                                    debug("Created directory: " . $dirname);
+                                                }
+                                            }
+                                            
+                                            debug("Extracting files...");
+                                            if (!$zip->extractTo(".")) {
+                                                $error = error_get_last();
+                                                debug("ERROR: Failed to extract files - " . ($error ? $error["message"] : "Unknown error"));
+                                                $zip->close();
+                                                return false;
+                                            }
+                                            
+                                            $zip->close();
+                                            debug("ZIP extraction completed");
+                                            
+                                            // Verify extraction
+                                            $extracted = false;
+                                            if (file_exists("artisan") && file_exists("composer.json")) {
+                                                debug("Verified key Laravel files exist");
+                                                $extracted = true;
+                                            } else {
+                                                debug("ERROR: Key Laravel files missing after extraction");
+                                            }
+                                            
+                                            return $extracted;
+                                        }
+                                        
                                         // Main execution
+                                        debug("=== Starting extraction process ===");
+                                        listCurrentFiles();
+                                        
+                                        if (!checkPermissions()) {
+                                            debug("ERROR: Permission check failed");
+                                            exit(1);
+                                        }
+                                        
                                         if (!checkZipFile()) {
+                                            debug("ERROR: ZIP file check failed");
                                             exit(1);
                                         }
                                         
                                         if (!extractZip()) {
+                                            debug("ERROR: Extraction failed");
                                             exit(1);
                                         }
                                         
-                                        if (cleanup()) {
-                                            echo "SUCCESS: Files extracted and cleaned up";
-                                        } else {
-                                            echo "WARNING: Files extracted but cleanup failed";
+                                        debug("=== Post-extraction state ===");
+                                        listCurrentFiles();
+                                        
+                                        // Only delete zip if everything was successful
+                                        if (file_exists("deploy.zip")) {
+                                            if (unlink("deploy.zip")) {
+                                                debug("ZIP file cleaned up");
+                                            } else {
+                                                debug("WARNING: Could not delete ZIP file");
+                                            }
                                         }
+                                        
+                                        debug("SUCCESS: Deployment completed successfully");
                                         ?>' > /tmp/extract.php
                                         
                                         # Now create the lftp script for upload
