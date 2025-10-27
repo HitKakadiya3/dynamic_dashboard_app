@@ -618,66 +618,98 @@ EOF
                                         done
                                         
                                         echo "Creating PHP extraction script..."
-                                        cat <<'EOF' > /tmp/extract.php
+                                        # Create a more robust extraction script
+                                        cat > /tmp/extract.php << 'EOF'
 <?php
 header("Content-Type: text/plain");
 error_reporting(E_ALL);
 ini_set("display_errors", 1);
 
-if (!file_exists("deploy.zip")) {
-    echo "Error: deploy.zip not found";
-    exit(1);
+function debug($message) {
+    echo date("Y-m-d H:i:s") . " - " . $message . "\n";
 }
 
-echo "Starting extraction...\\n";
+function checkZipFile() {
+    if (!file_exists("deploy.zip")) {
+        debug("Error: deploy.zip not found");
+        return false;
+    }
+    return true;
+}
 
-$zip = new ZipArchive;
-$res = $zip->open("deploy.zip");
-if ($res === TRUE) {
-    echo "Zip opened successfully\\n";
-    if (!$zip->extractTo(".")) {
-        echo "Failed to extract files";
+function extractFiles() {
+    $zip = new ZipArchive;
+    $res = $zip->open("deploy.zip");
+    if ($res === TRUE) {
+        debug("Zip opened successfully");
+        
+        // First create directories
+        for ($i = 0; $i < $zip->numFiles; $i++) {
+            $dirname = dirname($zip->getNameIndex($i));
+            if ($dirname !== "." && !is_dir($dirname)) {
+                if (!mkdir($dirname, 0755, true)) {
+                    debug("Failed to create directory: " . $dirname);
+                    $zip->close();
+                    return false;
+                }
+            }
+        }
+        
+        if (!$zip->extractTo(".")) {
+            debug("Failed to extract files");
+            $zip->close();
+            return false;
+        }
+        
         $zip->close();
-        exit(1);
+        debug("Files extracted successfully");
+        
+        if (!unlink("deploy.zip")) {
+            debug("Warning: Could not delete deploy.zip");
+        }
+        
+        return true;
     }
-    echo "Files extracted\\n";
-    $zip->close();
-    echo "Zip closed\\n";
-    
-    if (!unlink("deploy.zip")) {
-        echo "Warning: Could not delete deploy.zip\\n";
-    } else {
-        echo "Zip file deleted\\n";
-    }
-    echo "Extraction complete";
-} else {
-    echo "Failed to open zip (error code: " . $res . ")";
+    debug("Failed to open zip (error code: " . $res . ")");
+    return false;
+}
+
+debug("Starting extraction process");
+
+if (!checkZipFile()) {
     exit(1);
 }
+
+if (!extractFiles()) {
+    exit(1);
+}
+
+echo "Extraction complete";
 ?>
 EOF
 
+                                        # Create LFTP script for uploading extract.php
+                                        cat > /tmp/lftp_extract << EOL
+set cmd:fail-exit yes
+debug 3
+set ssl:verify-certificate no
+set ftp:ssl-allow no
+set net:max-retries 3
+set net:timeout 60
+open ftp://${AEONFREE_HOST}
+user ${FTP_USER} ${FTP_PASS}
+cd ${AEONFREE_PATH}
+put /tmp/extract.php -o extract.php
+quit
+EOL
+
                                         echo "Uploading extraction script..."
-                                        echo "set cmd:fail-exit yes;
-                                        debug 3;
-                                        set ssl:verify-certificate no;
-                                        set ftp:ssl-allow no;
-                                        set net:max-retries 3;
-                                        set net:timeout 60;
-                                        open ftp://${AEONFREE_HOST};
-                                        user ${FTP_USER} ${FTP_PASS};
-                                        cd ${AEONFREE_PATH};
-                                        put /tmp/extract.php -o extract.php;
-                                        quit;" > /tmp/lftp_extract
-                                        
                                         if lftp -f /tmp/lftp_extract; then
                                             echo "Extraction script uploaded successfully"
                                         else
                                             echo "Failed to upload extraction script"
                                             exit 1
-                                        fi
-                                        
-                                        echo "Waiting for files to be ready..."
+                                        fi                                        echo "Waiting for files to be ready..."
                                         sleep 5
                                         
                                         echo "Starting extraction..."
@@ -705,46 +737,28 @@ EOF
                                         
                                         lftp -f /tmp/lftp_cleanup || true
                                         
+                                        # Clean up remote extraction script
+                                        cat > /tmp/lftp_cleanup << EOL
+set cmd:fail-exit yes
+debug 3
+set ssl:verify-certificate no
+set ftp:ssl-allow no
+set net:max-retries 3
+set net:timeout 60
+open ftp://${AEONFREE_HOST}
+user ${FTP_USER} ${FTP_PASS}
+cd ${AEONFREE_PATH}
+rm -f extract.php
+quit
+EOL
+
+                                        echo "Cleaning up..."
+                                        lftp -f /tmp/lftp_cleanup || true
+                                        
                                         # Clean up local temporary files
                                         rm -f /tmp/lftp_script /tmp/lftp_cleanup /tmp/deploy.zip /tmp/extract.php
                                         
                                         echo "Deployment completed successfully!"
-                                        
-                                        # Clean up extraction script
-                                        echo "set ssl:verify-certificate no
-                                        set ftp:ssl-allow no
-                                        open ftp://${AEONFREE_HOST}
-                                        user ${FTP_USER} ${FTP_PASS}
-                                        cd ${AEONFREE_PATH}
-                                        rm extract.php
-                                        quit" > /tmp/lftp_script_cleanup
-                                        
-                                        echo "Cleaning up..."
-                                        lftp -f /tmp/lftp_script_cleanup || true
-
-                                        # Nothing here - removing duplicate code
-                                        
-                                        # Clean up
-                                        echo "Cleaning up temporary files..."
-                                        rm -f /tmp/lftp_script /tmp/extract.php
-                                        
-                                        # Clean up remote extract.php
-                                        echo "debug 3
-                                        set ssl:verify-certificate no
-                                        set ftp:ssl-allow no
-                                        set net:max-retries 3
-                                        set net:timeout 60
-                                        open ftp://${AEONFREE_HOST}
-                                        user ${FTP_USER} ${FTP_PASS}
-                                        cd ${AEONFREE_PATH}
-                                        rm -f extract.php
-                                        quit" > /tmp/lftp_cleanup
-                                        
-                                        lftp -f /tmp/lftp_cleanup || true
-                                        rm -f /tmp/lftp_cleanup
-                                        echo "All FTP attempts failed"
-                                        rm /tmp/lftp_script
-                                        exit 1
                                     '''
                                 }
                             } catch (err) {
