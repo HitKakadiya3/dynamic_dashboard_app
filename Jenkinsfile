@@ -139,7 +139,14 @@ pipeline {
                     if (!env.AEONFREE_HOST || env.AEONFREE_HOST.trim() == '') {
                         echo 'AEONFREE_HOST not configured; skipping Aeonfree deployment.'
                     } else {
-                        echo "Preparing deploy artifact for ${env.AEONFREE_HOST}..."
+                        echo "Preparing deployment to ${env.AEONFREE_HOST}..."
+                        sh '''
+                            # Create zip archive including all files
+                            cd "${WORKSPACE}"
+                            echo "Creating deployment package..."
+                            zip -r /tmp/deploy.zip . -x "storage/*" "tests/*" "build/*"
+                            
+                            echo "Archive created successfully"
                         // Install zip if not available
                         sh '''
                             if ! command -v zip >/dev/null 2>&1; then
@@ -397,7 +404,7 @@ if ($res === TRUE) {
 ?>
 EOF
 
-                                        # Create lftp script for uploading both files
+                                        # Create lftp script for upload
                                         echo "set cmd:fail-exit yes;
                                         debug 3;
                                         set ssl:verify-certificate no;
@@ -410,7 +417,6 @@ EOF
                                         user ${FTP_USER} ${FTP_PASS};
                                         cd ${AEONFREE_PATH};
                                         put /tmp/deploy.zip -o deploy.zip;
-                                        put /tmp/extract.php -o extract.php;
                                         quit;" > /tmp/lftp_script
                                             echo date("Y-m-d H:i:s") . " - " . $message . "\\n";
                                         }
@@ -592,35 +598,77 @@ EOF
                                             attempt=`expr $attempt + 1`
                                         done
                                         
+                                        echo "Creating PHP extraction script..."
+                                        cat <<'EOF' > /tmp/extract.php
+<?php
+header("Content-Type: text/plain");
+error_reporting(E_ALL);
+ini_set("display_errors", 1);
+
+if (!file_exists("deploy.zip")) {
+    echo "Error: deploy.zip not found";
+    exit(1);
+}
+
+echo "Starting extraction...\\n";
+
+$zip = new ZipArchive;
+$res = $zip->open("deploy.zip");
+if ($res === TRUE) {
+    echo "Zip opened successfully\\n";
+    if (!$zip->extractTo(".")) {
+        echo "Failed to extract files";
+        $zip->close();
+        exit(1);
+    }
+    echo "Files extracted\\n";
+    $zip->close();
+    echo "Zip closed\\n";
+    
+    if (!unlink("deploy.zip")) {
+        echo "Warning: Could not delete deploy.zip\\n";
+    } else {
+        echo "Zip file deleted\\n";
+    }
+    echo "Extraction complete";
+} else {
+    echo "Failed to open zip (error code: " . $res . ")";
+    exit(1);
+}
+?>
+EOF
+
+                                        echo "Uploading extraction script..."
+                                        echo "set cmd:fail-exit yes;
+                                        debug 3;
+                                        set ssl:verify-certificate no;
+                                        set ftp:ssl-allow no;
+                                        set net:max-retries 3;
+                                        set net:timeout 60;
+                                        open ftp://${AEONFREE_HOST};
+                                        user ${FTP_USER} ${FTP_PASS};
+                                        cd ${AEONFREE_PATH};
+                                        put /tmp/extract.php -o extract.php;
+                                        quit;" > /tmp/lftp_extract
+                                        
+                                        if ! lftp -f /tmp/lftp_extract; then
+                                            echo "Failed to upload extraction script"
+                                            exit 1
+                                        fi
+                                        
                                         echo "Waiting for files to be ready..."
                                         sleep 5
                                         
-                                        echo "Starting extraction process..."
-                                        max_extract_retries=3
-                                        extract_attempt=1
+                                        echo "Starting extraction..."
+                                        response=$(curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
+                                        echo "Server response: $response"
                                         
-                                        while [ "$extract_attempt" -le "$max_extract_retries" ]
-                                        do
-                                            echo "Extraction attempt $extract_attempt of $max_extract_retries..."
-                                            response=$(curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
-                                            echo "Server response: $response"
-                                            
-                                            if echo "$response" | grep -q "Extraction complete"
-                                            then
-                                                echo "Extraction successful!"
-                                                break
-                                            fi
-                                            
-                                            if [ "$extract_attempt" -eq "$max_extract_retries" ]
-                                            then
-                                                echo "All extraction attempts failed"
-                                                exit 1
-                                            fi
-                                            
-                                            echo "Extraction attempt failed. Waiting before retry..."
-                                            sleep 10
-                                            extract_attempt=`expr $extract_attempt + 1`
-                                        done
+                                        if ! echo "$response" | grep -q "Extraction complete"; then
+                                            echo "Extraction failed!"
+                                            exit 1
+                                        fi
+                                        
+                                        echo "Extraction completed successfully!"
                                         
                                         # Clean up extract.php from server
                                         echo "Cleaning up..."
