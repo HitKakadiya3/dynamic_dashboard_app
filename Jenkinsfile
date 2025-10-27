@@ -173,11 +173,13 @@ pipeline {
                                 echo 'Installing lftp...'
                                 sh '''
                                     if command -v apt-get >/dev/null 2>&1; then
-                                        sudo apt-get update && sudo apt-get install -y lftp
+                                        apt-get update && apt-get install -y lftp
                                     elif command -v yum >/dev/null 2>&1; then
-                                        sudo yum install -y lftp
+                                        yum install -y lftp
+                                    elif command -v apk >/dev/null 2>&1; then
+                                        apk add --no-cache lftp
                                     else
-                                        echo "Neither apt-get nor yum found. Please install lftp manually."
+                                        echo "No supported package manager found. Please install lftp manually."
                                         exit 1
                                     fi
                                 '''
