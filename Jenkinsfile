@@ -61,7 +61,7 @@ pipeline {
                     script {
                         // Guard: ensure deploy hook URL is configured before attempting deploy
                         if (!env.RENDER_DEPLOY_HOOK || !env.RENDER_DEPLOY_HOOK.startsWith('http')) {
-                            echo 'RENDER_DEPLOY_HOOK is not configured; skipping Render deployment.'
+                            echo 'RENDER_DEPLOY_HOOK is  not configured; skipping Render deployment.'
                         } else {
                             echo 'Docker push succeeded — triggering Render deployment via Deploy Hook...'
                             // Use the Render Deploy Hook URL (secret) to kick off a deployment.
