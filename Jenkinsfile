@@ -198,9 +198,18 @@ pipeline {
                             set -e
                             cd "${WORKSPACE}"
                             rm -f /tmp/deploy.zip || true
+                            rm -f /tmp/files_to_zip.txt || true
                             
+                            echo "Creating file list..."
                             echo "Creating zip archive in ${PWD}..."
-                            find . -type f -not -path "./.git/*" -not -path "./vendor/*" -not -path "./node_modules/*" -not -path "./storage/*" -not -path "./tests/*" -not -path "./build/*" -print | zip -v -r /tmp/deploy.zip -@
+                            
+                            cd "${WORKSPACE}"
+                            for dir in .git vendor node_modules storage tests build
+                            do
+                                echo "Excluding ${dir}/*"
+                            done
+                            
+                            zip -r /tmp/deploy.zip . -i "*.php" "*.js" "*.css" "*.json" "*.xml" "*.yml" "*.yaml" "*.md" "*.env" "artisan"
                                 -x "tests/*" \
                                 -x "build/*" \
                                 -x ".env" || true
