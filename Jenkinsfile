@@ -170,6 +170,18 @@ pipeline {
                         if (!sshAttempted) {
                             // FTP fallback using lftp
                             try {
+                                echo 'Installing lftp...'
+                                sh '''
+                                    if command -v apt-get >/dev/null 2>&1; then
+                                        sudo apt-get update && sudo apt-get install -y lftp
+                                    elif command -v yum >/dev/null 2>&1; then
+                                        sudo yum install -y lftp
+                                    else
+                                        echo "Neither apt-get nor yum found. Please install lftp manually."
+                                        exit 1
+                                    fi
+                                '''
+                                
                                 echo 'Attempting FTP deploy using Jenkins credential id "AEONFREE_FTP_CREDENTIALS"...'
                                 withCredentials([usernamePassword(credentialsId: 'AEONFREE_FTP_CREDENTIALS', usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
                                     sh '''
