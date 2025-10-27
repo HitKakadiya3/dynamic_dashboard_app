@@ -278,8 +278,8 @@ pipeline {
                                         cd "${WORKSPACE}"
                                         echo "Checking for vendor, node_modules, and .env..."
                                         
-                                        # Start with base exclusions
-                                        EXCLUDE_OPTS="-x .git/* storage/* tests/* build/*"
+                                        # Start with base exclusions - explicitly exclude all git-related files
+                                        EXCLUDE_OPTS="-x .git/* .git/ .gitignore .gitattributes .github/* .gitlab/* storage/* tests/* build/*"
                                         
                                         # Check if vendor exists and should be included
                                         if [ -d "vendor" ] && [ -f "vendor/autoload.php" ]; then
@@ -310,8 +310,20 @@ pipeline {
                                         eval "zip -r /tmp/deploy.zip . $EXCLUDE_OPTS"
                                         
                                         # Verify the contents of the zip file
-                                        echo "Verifying archive contents:"
+                                        echo "Verifying archive contents..."
+                                        
+                                        # Check for included important files
+                                        echo "Checking for key files:"
                                         unzip -l /tmp/deploy.zip | grep -E "vendor/autoload.php|node_modules/|.env" || true
+                                        
+                                        # Verify no git files are included
+                                        echo "Verifying no git files are included:"
+                                        if unzip -l /tmp/deploy.zip | grep -E "\.git/|\.gitignore|\.gitattributes|\.github/|\.gitlab/"; then
+                                            echo "ERROR: Git-related files found in archive!"
+                                            exit 1
+                                        else
+                                            echo "Confirmed: No git-related files in archive"
+                                        fi
                                         
                                         # Check zip file size
                                         zip_size=$(ls -lh /tmp/deploy.zip | awk '{print $5}')
