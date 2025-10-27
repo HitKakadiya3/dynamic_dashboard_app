@@ -317,21 +317,34 @@ pipeline {
                                         
                                         # Check for included important files
                                         echo "Checking for key files:"
-                                        unzip -l /tmp/deploy.zip | grep -E 'vendor/autoload.php|node_modules/|.env' || true
+                                        echo "Creating file list..."
+                                        unzip -l /tmp/deploy.zip > /tmp/zip_contents.txt
+                                        
+                                        echo "Checking for vendor files..."
+                                        grep "vendor/autoload.php" /tmp/zip_contents.txt || echo "No vendor/autoload.php found"
+                                        
+                                        echo "Checking for node_modules..."
+                                        grep "node_modules/" /tmp/zip_contents.txt || echo "No node_modules found"
+                                        
+                                        echo "Checking for .env file..."
+                                        grep ".env$" /tmp/zip_contents.txt || echo "No .env found"
                                         
                                         # Verify no git files are included
                                         echo "Verifying no git files are included:"
-                                        unzip -l /tmp/deploy.zip > /tmp/zip_contents.txt
-                                        if grep -E '.git/|.gitignore|.gitattributes|.github/|.gitlab/' /tmp/zip_contents.txt; then
+                                        if grep -E "\.git/|\.gitignore|\.gitattributes|\.github/|\.gitlab/" /tmp/zip_contents.txt; then
                                             echo "ERROR: Git-related files found in archive!"
                                             echo "Found git files:"
                                             grep -E '.git/|.gitignore|.gitattributes|.github/|.gitlab/' /tmp/zip_contents.txt
+                                            echo "Cleaning up temporary files..."
                                             rm -f /tmp/zip_contents.txt
                                             exit 1
                                         else
                                             echo "Confirmed: No git-related files in archive"
-                                            rm -f /tmp/zip_contents.txt
                                         fi
+                                        
+                                        # Clean up
+                                        echo "Cleaning up temporary files..."
+                                        rm -f /tmp/zip_contents.txt
                                         
                                         # Check zip file size
                                         zip_size=$(ls -lh /tmp/deploy.zip | awk '{print $5}')
