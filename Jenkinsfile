@@ -167,33 +167,26 @@ pipeline {
                             
                             echo "Archive created successfully"
                         // Install zip if not available
-                        sh '''
-                            which zip > /dev/null 2>&1
-                            if [ $? -eq 0 ]; then
-                                echo "Zip is already installed"
-                            else
-                                echo "Installing zip..."
-                                # Try apt-get
-                                which apt-get > /dev/null 2>&1
-                                if [ $? -eq 0 ]; then
+                        script {
+                            def hasZip = sh(script: 'which zip', returnStatus: true) == 0
+                            if (hasZip) {
+                                sh 'echo "Zip is already installed"'
+                            } else {
+                                sh '''
+                                    echo "Installing zip..."
+                                    if [ -x "$(command -v apt-get)" ]; then
                                 
-                                    apt-get update && apt-get install -y zip
-                                else
-                                    # Try yum
-                                    which yum > /dev/null 2>&1
-                                    if [ $? -eq 0 ]; then
+                                        apt-get update && apt-get install -y zip
+                                    elif [ -x "$(command -v yum)" ]; then
                                         yum install -y zip
+                                    elif [ -x "$(command -v apk)" ]; then
+                                        apk add --no-cache zip
                                     else
-                                        # Try apk
-                                        which apk > /dev/null 2>&1
-                                        if [ $? -eq 0 ]; then
-                                            apk add --no-cache zip
-                                        else
-                                            echo "No supported package manager found. Please install zip manually."
-                                            exit 1
-                                        fi
+                                        echo "No supported package manager found. Please install zip manually."
+                                        exit 1
                                     fi
-                                fi
+                                '''
+                            }
                             fi
                         '''
                         
