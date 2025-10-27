@@ -168,24 +168,31 @@ pipeline {
                             echo "Archive created successfully"
                         // Install zip if not available
                         sh '''
-                            ZIP_CHECK=$(which zip || echo "")
-                            if [ -n "$ZIP_CHECK" ]; then
+                            which zip > /dev/null 2>&1
+                            if [ $? -eq 0 ]; then
                                 echo "Zip is already installed"
                             else
                                 echo "Installing zip..."
-                                APT_GET=$(which apt-get || echo "")
-                                YUM=$(which yum || echo "")
-                                APK=$(which apk || echo "")
+                                # Try apt-get
+                                which apt-get > /dev/null 2>&1
+                                if [ $? -eq 0 ]; then
                                 
-                                if [ -n "$APT_GET" ]; then
                                     apt-get update && apt-get install -y zip
-                                elif [ -n "$YUM" ]; then
-                                    yum install -y zip
-                                elif [ -n "$APK" ]; then
-                                    apk add --no-cache zip
                                 else
-                                    echo "No supported package manager found. Please install zip manually."
-                                    exit 1
+                                    # Try yum
+                                    which yum > /dev/null 2>&1
+                                    if [ $? -eq 0 ]; then
+                                        yum install -y zip
+                                    else
+                                        # Try apk
+                                        which apk > /dev/null 2>&1
+                                        if [ $? -eq 0 ]; then
+                                            apk add --no-cache zip
+                                        else
+                                            echo "No supported package manager found. Please install zip manually."
+                                            exit 1
+                                        fi
+                                    fi
                                 fi
                             fi
                         '''
