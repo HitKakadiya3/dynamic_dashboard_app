@@ -146,15 +146,15 @@ pipeline {
                             echo "Creating deployment package..."
                             
                             # Check if zip is installed
-                            if command -v zip >/dev/null 2>&1; then
+                            if [ $(command -v zip >/dev/null 2>&1; echo $?) -eq 0 ]; then
                                 echo "Zip command is available"
                             else
                                 echo "Installing zip..."
-                                if command -v apt-get >/dev/null 2>&1; then
+                                if [ $(command -v apt-get >/dev/null 2>&1; echo $?) -eq 0 ]; then
                                     apt-get update && apt-get install -y zip
-                                elif command -v yum >/dev/null 2>&1; then
+                                elif [ $(command -v yum >/dev/null 2>&1; echo $?) -eq 0 ]; then
                                     yum install -y zip
-                                elif command -v apk >/dev/null 2>&1; then
+                                elif [ $(command -v apk >/dev/null 2>&1; echo $?) -eq 0 ]; then
                                     apk add --no-cache zip
                                 else
                                     echo "No package manager found to install zip"
