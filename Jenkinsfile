@@ -279,7 +279,7 @@ pipeline {
                                         echo "Checking for vendor, node_modules, and .env..."
                                         
                                         # Start with base exclusions - explicitly exclude all git-related files
-                                        EXCLUDE_OPTS="-x '*.git/*' '.git/' '.gitignore' '.gitattributes' '.github/*' '.gitlab/*' 'storage/*' 'tests/*' 'build/*'"
+                                        EXCLUDE_OPTS="-x '*/.git/*' '*/.git/' '*.gitignore' '*.gitattributes' '*/.github/*' '*/.gitlab/*' 'storage/*' 'tests/*' 'build/*' '.git/' '.gitignore' '.gitattributes' '.github/' '.gitlab/'"
                                         
                                         # Check if vendor exists and should be included
                                         if [ -d "vendor" ] && [ -f "vendor/autoload.php" ]; then
@@ -305,6 +305,9 @@ pipeline {
                                             EXCLUDE_OPTS="$EXCLUDE_OPTS .env"
                                         fi
                                         
+                                        echo "Checking for git files before creating archive..."
+                                        find . -name ".git*" -o -name ".git" -type f -o -type d
+                                        
                                         echo "Creating deployment archive..."
                                         echo "Exclusion options: $EXCLUDE_OPTS"
                                         eval "zip -r /tmp/deploy.zip . $EXCLUDE_OPTS"
@@ -318,8 +321,10 @@ pipeline {
                                         
                                         # Verify no git files are included
                                         echo "Verifying no git files are included:"
-                                        if unzip -l /tmp/deploy.zip | grep -E '.git/|.gitignore|.gitattributes|.github/|.gitlab/'; then
+                                        if unzip -l /tmp/deploy.zip | grep -E "\.git/|\.gitignore$|\.gitattributes$|\.github/|\.gitlab/|/\.gitignore$"; then
                                             echo "ERROR: Git-related files found in archive!"
+                                            echo "Found git files:"
+                                            unzip -l /tmp/deploy.zip | grep -E "\.git/|\.gitignore$|\.gitattributes$|\.github/|\.gitlab/|/\.gitignore$"
                                             exit 1
                                         else
                                             echo "Confirmed: No git-related files in archive"
