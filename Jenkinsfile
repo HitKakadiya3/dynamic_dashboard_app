@@ -274,7 +274,51 @@ pipeline {
                                         }
                                         ?>' > /tmp/extract.php
 
-                                        # Create lftp script for direct file upload
+                                        # First create the zip file
+                                        cd "${WORKSPACE}"
+                                        zip -r /tmp/deploy.zip . -x ".git/*" "vendor/*" "node_modules/*" "storage/*" "tests/*" "build/*" ".env"
+                                        
+                                        # Create extract.php script
+                                        cat <<'EOF' > /tmp/extract.php
+<?php
+header("Content-Type: text/plain");
+error_reporting(E_ALL);
+ini_set("display_errors", 1);
+
+if (!file_exists("deploy.zip")) {
+    echo "Error: deploy.zip not found";
+    exit(1);
+}
+
+echo "Starting extraction...\\n";
+
+$zip = new ZipArchive;
+$res = $zip->open("deploy.zip");
+if ($res === TRUE) {
+    echo "Zip opened successfully\\n";
+    if (!$zip->extractTo(".")) {
+        echo "Failed to extract files";
+        $zip->close();
+        exit(1);
+    }
+    echo "Files extracted\\n";
+    $zip->close();
+    echo "Zip closed\\n";
+    
+    if (!unlink("deploy.zip")) {
+        echo "Warning: Could not delete deploy.zip\\n";
+    } else {
+        echo "Zip file deleted\\n";
+    }
+    echo "Extraction complete";
+} else {
+    echo "Failed to open zip (error code: " . $res . ")";
+    exit(1);
+}
+?>
+EOF
+
+                                        # Create lftp script for uploading both files
                                         echo "set cmd:fail-exit yes;
                                         debug 3;
                                         set ssl:verify-certificate no;
@@ -283,12 +327,11 @@ pipeline {
                                         set net:timeout 60;
                                         set xfer:log yes;
                                         set xfer:show-status yes;
-                                        set mirror:parallel-transfer-count 5;
                                         open ftp://${AEONFREE_HOST};
                                         user ${FTP_USER} ${FTP_PASS};
-                                        lcd ${WORKSPACE};
                                         cd ${AEONFREE_PATH};
-                                        mirror --reverse --exclude-glob .git/ --exclude-glob .env --exclude-glob vendor/ --exclude-glob node_modules/ --exclude-glob storage/ --exclude-glob tests/ --exclude-glob .gitignore --exclude-glob .gitattributes --delete --verbose ./ ./;
+                                        put /tmp/deploy.zip -o deploy.zip;
+                                        put /tmp/extract.php -o extract.php;
                                         quit;" > /tmp/lftp_script
                                             echo date("Y-m-d H:i:s") . " - " . $message . "\\n";
                                         }
@@ -444,10 +487,9 @@ pipeline {
                                             exit 1
                                         fi
                                         
-                                        echo "Starting direct file upload process..."
+                                        echo "Starting upload process..."
                                         max_retries=3
                                         attempt=1
-                                        success=0
                                         
                                         while [ "$attempt" -le "$max_retries" ]
                                         do
@@ -456,14 +498,13 @@ pipeline {
                                             if lftp -f /tmp/lftp_script
                                             then
                                                 echo "Files uploaded successfully!"
-                                                success=1
                                                 break
                                             fi
                                             
                                             if [ "$attempt" -eq "$max_retries" ]
                                             then
                                                 echo "All upload attempts failed"
-                                                rm -f /tmp/lftp_script
+                                                rm -f /tmp/lftp_script /tmp/deploy.zip /tmp/extract.php
                                                 exit 1
                                             fi
                                             
@@ -472,13 +513,52 @@ pipeline {
                                             attempt=`expr $attempt + 1`
                                         done
                                         
-                                        # Clean up temporary files
-                                        rm -f /tmp/lftp_script
+                                        echo "Waiting for files to be ready..."
+                                        sleep 5
                                         
-                                        if [ "$success" -eq 1 ]
-                                        then
-                                            echo "File synchronization completed successfully!"
-                                        fi
+                                        echo "Starting extraction process..."
+                                        max_extract_retries=3
+                                        extract_attempt=1
+                                        
+                                        while [ "$extract_attempt" -le "$max_extract_retries" ]
+                                        do
+                                            echo "Extraction attempt $extract_attempt of $max_extract_retries..."
+                                            response=$(curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
+                                            echo "Server response: $response"
+                                            
+                                            if echo "$response" | grep -q "Extraction complete"
+                                            then
+                                                echo "Extraction successful!"
+                                                break
+                                            fi
+                                            
+                                            if [ "$extract_attempt" -eq "$max_extract_retries" ]
+                                            then
+                                                echo "All extraction attempts failed"
+                                                exit 1
+                                            fi
+                                            
+                                            echo "Extraction attempt failed. Waiting before retry..."
+                                            sleep 10
+                                            extract_attempt=`expr $extract_attempt + 1`
+                                        done
+                                        
+                                        # Clean up extract.php from server
+                                        echo "Cleaning up..."
+                                        echo "set ssl:verify-certificate no;
+                                        set ftp:ssl-allow no;
+                                        open ftp://${AEONFREE_HOST};
+                                        user ${FTP_USER} ${FTP_PASS};
+                                        cd ${AEONFREE_PATH};
+                                        rm -f extract.php;
+                                        quit;" > /tmp/lftp_cleanup
+                                        
+                                        lftp -f /tmp/lftp_cleanup || true
+                                        
+                                        # Clean up local temporary files
+                                        rm -f /tmp/lftp_script /tmp/lftp_cleanup /tmp/deploy.zip /tmp/extract.php
+                                        
+                                        echo "Deployment completed successfully!"
                                         
                                         # Clean up extraction script
                                         echo "set ssl:verify-certificate no
