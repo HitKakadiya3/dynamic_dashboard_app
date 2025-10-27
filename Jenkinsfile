@@ -140,7 +140,7 @@ pipeline {
                         echo 'AEONFREE_HOST not configured; skipping Aeonfree deployment.'
                     } else {
                         echo "Preparing deploy artifact for ${env.AEONFREE_HOST}..."
-                        // Create a zip of the repository excluding large or environment-specific folders
+                        // Create zip archive
                         sh '''
                             set -e
                             rm -f /tmp/deploy.zip || true
@@ -148,7 +148,7 @@ pipeline {
                             ls -lh /tmp/deploy.zip || true
                         '''
 
-                        // Try SSH deploy first by attempting to bind the Jenkins SSH credential (id: 'aeonfree_ssh')
+                        // Try SSH deploy first
                         def sshAttempted = false
                         try {
                             echo 'Attempting to bind Jenkins SSH credential id "aeonfree_ssh"...'
@@ -158,42 +158,42 @@ pipeline {
                                 sh '''
                                     set -e
                                     chmod 600 "$SSH_KEY" || true
-                                    # ensure remote dir exists (ssh host key check disabled for automation)
                                     ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@${AEONFREE_HOST}" "mkdir -p ${AEONFREE_PATH} || true"
                                     scp -o StrictHostKeyChecking=no -i "$SSH_KEY" /tmp/deploy.zip "$SSH_USER@${AEONFREE_HOST}:${AEONFREE_PATH}/deploy.zip"
-                                    # Extract files in htdocs
                                     ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@${AEONFREE_HOST}" "cd ${AEONFREE_PATH} && unzip -o deploy.zip && rm deploy.zip"
                                 '''
                             }
                         } catch (err) {
-                            echo "SSH credential bind failed or SSH deploy failed: ${err}. Will attempt FTP fallback."
+                            echo "SSH deploy failed: ${err}. Attempting FTP fallback..."
                         }
 
                         if (!sshAttempted) {
-                            // Attempt FTP fallback by binding username/password credential id 'AEONFREE_FTP_CREDENTIALS'
+                            // FTP fallback using lftp
                             try {
                                 echo 'Attempting FTP deploy using Jenkins credential id "AEONFREE_FTP_CREDENTIALS"...'
                                 withCredentials([usernamePassword(credentialsId: 'AEONFREE_FTP_CREDENTIALS', usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
                                     sh '''
                                         set -e
-                                        # Upload using curl (ensure curl supports FTP on the agent)
-                                        curl -T /tmp/deploy.zip "ftp://$FTP_USER:$FTP_PASS@${AEONFREE_HOST}/${AEONFREE_PATH}/deploy.zip"
-                                    '''
-                                }
-                            } catch (err2) {
-                                echo "FTP credential bind failed or FTP upload failed: ${err2}. Skipping Aeonfree deploy."
-                            }
-                        }
-                    }
-                }
-            }
-            post {
-                success {
-                    echo 'Aeonfree deploy stage finished (success or uploaded).'
-                }
-                failure {
-                    echo 'Aeonfree deploy stage failed.'
-                }
+                                        # Create lftp script
+                                        echo "set ssl:verify-certificate no
+                                        set ftp:ssl-allow no
+                                        open ftp://${AEONFREE_HOST}
+                                        user ${FTP_USER} ${FTP_PASS}
+                                        cd ${AEONFREE_PATH}
+                                        put /tmp/deploy.zip -o deploy.zip
+                                        quit" > /tmp/lftp_script
+
+                                        # Execute lftp with retries
+                                        max_retries=3
+                                        attempt=1
+                                        while [ "$attempt" -le "$max_retries" ]; do
+                                            if lftp -f /tmp/lftp_script; then
+                                                echo "FTP upload successful!"
+                                                rm /tmp/lftp_script
+                                                exit 0
+                                            fi
+                                            echo "FTP attempt $attempt failed. Retrying in 10s..."
+                                            sleep 
             }
         }
     }
