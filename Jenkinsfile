@@ -168,15 +168,20 @@ pipeline {
                             echo "Archive created successfully"
                         // Install zip if not available
                         sh '''
-                            if command -v zip >/dev/null 2>&1; then
+                            ZIP_CHECK=$(which zip || echo "")
+                            if [ -n "$ZIP_CHECK" ]; then
                                 echo "Zip is already installed"
                             else
                                 echo "Installing zip..."
-                                if command -v apt-get >/dev/null 2>&1; then
+                                APT_GET=$(which apt-get || echo "")
+                                YUM=$(which yum || echo "")
+                                APK=$(which apk || echo "")
+                                
+                                if [ -n "$APT_GET" ]; then
                                     apt-get update && apt-get install -y zip
-                                elif command -v yum >/dev/null 2>&1; then
+                                elif [ -n "$YUM" ]; then
                                     yum install -y zip
-                                elif command -v apk >/dev/null 2>&1; then
+                                elif [ -n "$APK" ]; then
                                     apk add --no-cache zip
                                 else
                                     echo "No supported package manager found. Please install zip manually."
