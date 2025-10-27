@@ -200,11 +200,7 @@ pipeline {
                             rm -f /tmp/deploy.zip || true
                             
                             echo "Creating zip archive in ${PWD}..."
-                            zip -v -r /tmp/deploy.zip . \
-                                -x ".git/*" \
-                                -x "vendor/*" \
-                                -x "node_modules/*" \
-                                -x "storage/*" \
+                            zip -v -r /tmp/deploy.zip . -x ".git/*" "vendor/*" "node_modules/*" "storage/*" "tests/*" "build/*"
                                 -x "tests/*" \
                                 -x "build/*" \
                                 -x ".env" || true
