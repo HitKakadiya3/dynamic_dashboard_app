@@ -274,9 +274,48 @@ pipeline {
                                         }
                                         ?>' > /tmp/extract.php
 
-                                        # First create the zip file
+                                        # First check what exists and create zip file accordingly
                                         cd "${WORKSPACE}"
-                                        zip -r /tmp/deploy.zip . -x ".git/*" "vendor/*" "node_modules/*" "storage/*" "tests/*" "build/*" ".env"
+                                        echo "Checking for vendor, node_modules, and .env..."
+                                        
+                                        # Start with base exclusions
+                                        EXCLUDE_OPTS="-x .git/* storage/* tests/* build/*"
+                                        
+                                        # Check if vendor exists and should be included
+                                        if [ -d "vendor" ] && [ -f "vendor/autoload.php" ]; then
+                                            echo "Found valid vendor directory - including in deployment"
+                                        else
+                                            echo "Excluding vendor directory"
+                                            EXCLUDE_OPTS="$EXCLUDE_OPTS vendor/*"
+                                        fi
+                                        
+                                        # Check if node_modules exists and should be included
+                                        if [ -d "node_modules" ] && [ -f "node_modules/.package-lock.json" ]; then
+                                            echo "Found valid node_modules directory - including in deployment"
+                                        else
+                                            echo "Excluding node_modules directory"
+                                            EXCLUDE_OPTS="$EXCLUDE_OPTS node_modules/*"
+                                        fi
+                                        
+                                        # Check if .env exists
+                                        if [ -f ".env" ]; then
+                                            echo "Found .env file - including in deployment"
+                                        else
+                                            echo "No .env file found"
+                                            EXCLUDE_OPTS="$EXCLUDE_OPTS .env"
+                                        fi
+                                        
+                                        echo "Creating deployment archive..."
+                                        echo "Exclusion options: $EXCLUDE_OPTS"
+                                        eval "zip -r /tmp/deploy.zip . $EXCLUDE_OPTS"
+                                        
+                                        # Verify the contents of the zip file
+                                        echo "Verifying archive contents:"
+                                        unzip -l /tmp/deploy.zip | grep -E "vendor/autoload.php|node_modules/|.env" || true
+                                        
+                                        # Check zip file size
+                                        zip_size=$(ls -lh /tmp/deploy.zip | awk '{print $5}')
+                                        echo "Archive size: $zip_size"
                                         
                                         # Create extract.php script
                                         cat <<'EOF' > /tmp/extract.php
