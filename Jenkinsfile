@@ -200,7 +200,7 @@ pipeline {
                             rm -f /tmp/deploy.zip || true
                             
                             echo "Creating zip archive in ${PWD}..."
-                            zip -v -r /tmp/deploy.zip . -x ".git/*" "vendor/*" "node_modules/*" "storage/*" "tests/*" "build/*"
+                            find . -type f -not -path "./.git/*" -not -path "./vendor/*" -not -path "./node_modules/*" -not -path "./storage/*" -not -path "./tests/*" -not -path "./build/*" -print | zip -v -r /tmp/deploy.zip -@
                                 -x "tests/*" \
                                 -x "build/*" \
                                 -x ".env" || true
