@@ -144,6 +144,25 @@ pipeline {
                             # Create zip archive including all files
                             cd "${WORKSPACE}"
                             echo "Creating deployment package..."
+                            
+                            # Check if zip is installed
+                            if command -v zip >/dev/null 2>&1; then
+                                echo "Zip command is available"
+                            else
+                                echo "Installing zip..."
+                                if command -v apt-get >/dev/null 2>&1; then
+                                    apt-get update && apt-get install -y zip
+                                elif command -v yum >/dev/null 2>&1; then
+                                    yum install -y zip
+                                elif command -v apk >/dev/null 2>&1; then
+                                    apk add --no-cache zip
+                                else
+                                    echo "No package manager found to install zip"
+                                    exit 1
+                                fi
+                            fi
+                            
+                            echo "Creating zip archive..."
                             zip -r /tmp/deploy.zip . -x "storage/*" "tests/*" "build/*"
                             
                             echo "Archive created successfully"
@@ -651,7 +670,9 @@ EOF
                                         put /tmp/extract.php -o extract.php;
                                         quit;" > /tmp/lftp_extract
                                         
-                                        if ! lftp -f /tmp/lftp_extract; then
+                                        if lftp -f /tmp/lftp_extract; then
+                                            echo "Extraction script uploaded successfully"
+                                        else
                                             echo "Failed to upload extraction script"
                                             exit 1
                                         fi
@@ -663,7 +684,9 @@ EOF
                                         response=$(curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
                                         echo "Server response: $response"
                                         
-                                        if ! echo "$response" | grep -q "Extraction complete"; then
+                                        if echo "$response" | grep -q "Extraction complete"; then
+                                            echo "Extraction completed successfully"
+                                        else
                                             echo "Extraction failed!"
                                             exit 1
                                         fi
