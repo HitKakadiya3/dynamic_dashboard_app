@@ -10,8 +10,8 @@ pipeline {
         // Render Deploy Hook URL stored as Jenkins Secret Text credential (ID: RENDER_DEPLOY_HOOK)
         RENDER_DEPLOY_HOOK = credentials('RENDER_DEPLOY_HOOK')
         // Aeonfree deployment - configure these in Jenkins (leave empty to skip)
-        AEONFREE_HOST = ''                         // ftp.example.com or host.example.com
-        AEONFREE_PATH = ''                         // remote path where to upload the artifact
+        AEONFREE_HOST = 'laravel-dynamic.iceiy.com'                         // ftp.example.com or host.example.com
+        AEONFREE_PATH = 'home/htdocs'                         // remote path where to upload the artifact
     // Note: Credential IDs are stored in  Jenkins credentials store. We will bind them via withCredentials in the deploy stage.
     }
 
@@ -161,6 +161,8 @@ pipeline {
                                     # ensure remote dir exists (ssh host key check disabled for automation)
                                     ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@${AEONFREE_HOST}" "mkdir -p ${AEONFREE_PATH} || true"
                                     scp -o StrictHostKeyChecking=no -i "$SSH_KEY" /tmp/deploy.zip "$SSH_USER@${AEONFREE_HOST}:${AEONFREE_PATH}/deploy.zip"
+                                    # Extract files in htdocs
+                                    ssh -o StrictHostKeyChecking=no -i "$SSH_KEY" "$SSH_USER@${AEONFREE_HOST}" "cd ${AEONFREE_PATH} && unzip -o deploy.zip && rm deploy.zip"
                                 '''
                             }
                         } catch (err) {
