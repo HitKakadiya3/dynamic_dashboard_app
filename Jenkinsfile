@@ -193,7 +193,20 @@ pipeline {
                                                 exit 0
                                             fi
                                             echo "FTP attempt $attempt failed. Retrying in 10s..."
-                                            sleep 
+                                            sleep 10
+                                            attempt=$((attempt+1))
+                                        done
+                                        echo "All FTP attempts failed"
+                                        rm /tmp/lftp_script
+                                        exit 1
+                                    '''
+                                }
+                            } catch (err) {
+                                error "FTP deploy failed: ${err}"
+                            }
+                        }
+                    }
+                }
             }
         }
     }
