@@ -274,13 +274,33 @@ pipeline {
                                         }
                                         ?>' > /tmp/extract.php
 
-                                        # First create the extraction script
-                                        echo '<?php
-                                        header("Content-Type: text/plain");
-                                        error_reporting(E_ALL);
-                                        ini_set("display_errors", 1);
-                                        
-                                        function debug($message) {
+                                        # Create lftp script for direct file upload
+                                        echo "debug 3
+                                        set ssl:verify-certificate no
+                                        set ftp:ssl-allow no
+                                        set net:max-retries 3
+                                        set net:timeout 60
+                                        set xfer:log yes
+                                        set xfer:show-status yes
+                                        set mirror:parallel-transfer-count 5
+                                        open ftp://${AEONFREE_HOST}
+                                        user ${FTP_USER} ${FTP_PASS}
+                                        lcd ${WORKSPACE}
+                                        cd ${AEONFREE_PATH}
+                                        # Mirror command to sync all files
+                                        mirror --reverse \\
+                                            --exclude .git/ \\
+                                            --exclude .env \\
+                                            --exclude vendor/ \\
+                                            --exclude node_modules/ \\
+                                            --exclude storage/ \\
+                                            --exclude tests/ \\
+                                            --exclude .gitignore \\
+                                            --exclude .gitattributes \\
+                                            --delete \\
+                                            --verbose \\
+                                            ./ ./
+                                        quit" > /tmp/lftp_script
                                             echo date("Y-m-d H:i:s") . " - " . $message . "\\n";
                                         }
                                         
@@ -435,7 +455,7 @@ pipeline {
                                             exit 1
                                         fi
                                         
-                                        echo "Starting upload process..."
+                                        echo "Starting direct file upload process..."
                                         max_retries=3
                                         attempt=1
                                         
@@ -457,58 +477,10 @@ pipeline {
                                             attempt=$((attempt + 1))
                                         done
                                         
-                                        echo "Waiting for files to be ready..."
-                                        sleep 5
+                                        # Clean up temporary files
+                                        rm -f /tmp/lftp_script
                                         
-                                        echo "Starting extraction process..."
-                                        max_extract_retries=3
-                                        extract_attempt=1
-                                        
-                                        while [ $extract_attempt -le $max_extract_retries ]; do
-                                            echo "Extraction attempt $extract_attempt of $max_extract_retries..."
-                                            
-                                            response=$(curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
-                                            echo "Server response: $response"
-                                            
-                                            if [[ "$response" == *"SUCCESS"* ]]; then
-                                                echo "Extraction completed successfully!"
-                                                break
-                                            elif [[ "$response" == *"ERROR"* ]]; then
-                                                echo "Extraction failed with error"
-                                                if [ $extract_attempt -eq $max_extract_retries ]; then
-                                                    echo "All extraction attempts failed"
-                                                    exit 1
-                                                fi
-                                            else
-                                                echo "Unexpected response from server"
-                                                if [ $extract_attempt -eq $max_extract_retries ]; then
-                                                    echo "All extraction attempts failed"
-                                                    exit 1
-                                                fi
-                                            fi
-                                            
-                                            echo "Waiting before next attempt..."
-                                            sleep 10
-                                            extract_attempt=$((extract_attempt + 1))
-                                        done
-                                        
-                                        # Clean up the extract.php file
-                                        echo "Cleaning up..."
-                                        echo "debug 3
-                                        set ssl:verify-certificate no
-                                        set ftp:ssl-allow no
-                                        set net:max-retries 3
-                                        set net:timeout 60
-                                        open ftp://${AEONFREE_HOST}
-                                        user ${FTP_USER} ${FTP_PASS}
-                                        cd ${AEONFREE_PATH}
-                                        rm -f extract.php
-                                        quit" > /tmp/lftp_cleanup
-                                        
-                                        lftp -f /tmp/lftp_cleanup || true
-                                        
-                                        # Clean up local temporary files
-                                        rm -f /tmp/lftp_script /tmp/lftp_cleanup /tmp/extract.php
+                                        echo "File synchronization completed successfully!"
                                         
                                         # Clean up extraction script
                                         echo "set ssl:verify-certificate no
