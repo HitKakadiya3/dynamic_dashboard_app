@@ -300,24 +300,58 @@ pipeline {
                                             exit 1
                                         fi
                                         
-                                        # Create unzip script
-                                        echo "Creating unzip script..."
+                                        # Create extraction script
+                                        echo "Creating extraction script..."
                                         echo '<?php
+                                        header("Content-Type: text/plain");
+                                        error_reporting(E_ALL);
+                                        ini_set("display_errors", 1);
+                                        
+                                        echo "Starting extraction process...\n";
+                                        
+                                        if (!file_exists("deploy.zip")) {
+                                            echo "Error: deploy.zip not found\n";
+                                            exit(1);
+                                        }
+                                        
+                                        echo "Found deploy.zip\n";
+                                        
                                         $zip = new ZipArchive;
                                         $res = $zip->open("deploy.zip");
                                         if ($res === TRUE) {
-                                            $zip->extractTo(".");
+                                            echo "ZIP file opened successfully\n";
+                                            
+                                            $totalFiles = $zip->numFiles;
+                                            echo "Total files in ZIP: " . $totalFiles . "\n";
+                                            
+                                            if (!$zip->extractTo(".")) {
+                                                echo "Failed to extract files\n";
+                                                $zip->close();
+                                                exit(1);
+                                            }
+                                            
+                                            echo "Files extracted successfully\n";
                                             $zip->close();
-                                            unlink("deploy.zip");
-                                            echo "Extraction complete";
+                                            echo "ZIP file closed\n";
+                                            
+                                            if (unlink("deploy.zip")) {
+                                                echo "ZIP file deleted\n";
+                                            } else {
+                                                echo "Warning: Could not delete ZIP file\n";
+                                            }
+                                            
+                                            echo "Extraction complete - Total files extracted: " . $totalFiles;
                                         } else {
-                                            echo "Failed to extract zip";
+                                            echo "Failed to open ZIP (error code: " . $res . ")\n";
+                                            exit(1);
                                         }
                                         ?>' > /tmp/extract.php
                                         
-                                        # Upload extract script
+                                        # Upload the extraction script
                                         echo "set ssl:verify-certificate no
                                         set ftp:ssl-allow no
+                                        set net:max-retries 3
+                                        set net:timeout 60
                                         open ftp://${AEONFREE_HOST}
                                         user ${FTP_USER} ${FTP_PASS}
                                         cd ${AEONFREE_PATH}
@@ -330,9 +364,36 @@ pipeline {
                                             exit 1
                                         fi
                                         
-                                        # Execute extraction via curl
-                                        echo "Extracting zip file..."
-                                        curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php"
+                                        echo "Waiting for files to settle..."
+                                        sleep 5
+                                        
+                                        echo "Attempting extraction..."
+                                        # Execute extraction with retries
+                                        max_retries=3
+                                        attempt=1
+                                        success=0
+                                        
+                                        while [ $attempt -le $max_retries ]; do
+                                            echo "Extraction attempt $attempt of $max_retries..."
+                                            
+                                            response=$(curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
+                                            echo "Server response: $response"
+                                            
+                                            if [[ "$response" == *"Extraction complete"* ]]; then
+                                                echo "Extraction successful!"
+                                                success=1
+                                                break
+                                            fi
+                                            
+                                            echo "Extraction attempt $attempt failed. Waiting before retry..."
+                                            sleep 10
+                                            attempt=$((attempt + 1))
+                                        done
+                                        
+                                        if [ $success -eq 0 ]; then
+                                            echo "All extraction attempts failed"
+                                            exit 1
+                                        fi
                                         
                                         # Clean up extraction script
                                         echo "set ssl:verify-certificate no
@@ -346,53 +407,7 @@ pipeline {
                                         echo "Cleaning up..."
                                         lftp -f /tmp/lftp_script_cleanup || true
 
-                                        # Execute lftp with retries
-                                        max_retries=3
-                                        attempt=1
-                                        while [ "$attempt" -le "$max_retries" ]; do
-                                            if lftp -f /tmp/lftp_script; then
-                                                echo "FTP upload successful!"
-                                                break
-                                            fi
-                                            if [ "$attempt" -eq "$max_retries" ]; then
-                                                echo "All FTP upload attempts failed"
-                                                rm /tmp/lftp_script
-                                                exit 1
-                                            fi
-                                            echo "FTP attempt $attempt failed. Retrying in 10s..."
-                                            sleep 10
-                                            attempt=$((attempt+1))
-                                        done
-                                        
-                                        # Wait for files to be ready
-                                        echo "Waiting for files to settle..."
-                                        sleep 5
-                                        
-                                        # Execute extraction via curl with retries
-                                        echo "Starting extraction process..."
-                                        max_extract_retries=3
-                                        extract_attempt=1
-                                        
-                                        while [ "$extract_attempt" -le "$max_extract_retries" ]; do
-                                            echo "Extraction attempt $extract_attempt of $max_extract_retries"
-                                            
-                                            response=$(curl -v -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
-                                            echo "Extraction response: $response"
-                                            
-                                            if [[ "$response" == *"Extraction complete"* ]]; then
-                                                echo "Extraction successful!"
-                                                break
-                                            fi
-                                            
-                                            if [ "$extract_attempt" -eq "$max_extract_retries" ]; then
-                                                echo "All extraction attempts failed"
-                                                exit 1
-                                            fi
-                                            
-                                            echo "Extraction attempt failed, waiting 10s before retry..."
-                                            sleep 10
-                                            extract_attempt=$((extract_attempt + 1))
-                                        done
+                                        # Nothing here - removing duplicate code
                                         
                                         # Clean up
                                         echo "Cleaning up temporary files..."
