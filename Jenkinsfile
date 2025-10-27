@@ -234,14 +234,56 @@ pipeline {
                                             echo "Error: /tmp/deploy.zip not found!"
                                             exit 1
                                         fi
+
+                                        # Create extraction PHP script
+                                        echo "Creating extraction script..."
+                                        echo '<?php
+                                        header("Content-Type: text/plain");
+                                        error_reporting(E_ALL);
+                                        ini_set("display_errors", 1);
                                         
-                                        # Create initial lftp script for upload
+                                        if (!file_exists("deploy.zip")) {
+                                            echo "Error: deploy.zip not found";
+                                            exit(1);
+                                        }
+                                        
+                                        echo "Starting extraction...\\n";
+                                        
+                                        $zip = new ZipArchive;
+                                        $res = $zip->open("deploy.zip");
+                                        if ($res === TRUE) {
+                                            echo "Zip opened successfully\\n";
+                                            if (!$zip->extractTo(".")) {
+                                                echo "Failed to extract files";
+                                                $zip->close();
+                                                exit(1);
+                                            }
+                                            echo "Files extracted\\n";
+                                            $zip->close();
+                                            echo "Zip closed\\n";
+                                            
+                                            if (!unlink("deploy.zip")) {
+                                                echo "Warning: Could not delete deploy.zip\\n";
+                                            } else {
+                                                echo "Zip file deleted\\n";
+                                            }
+                                            echo "Extraction complete";
+                                        } else {
+                                            echo "Failed to open zip (error code: " . $res . ")";
+                                            exit(1);
+                                        }
+                                        ?>' > /tmp/extract.php
+
+                                        # Create lftp script for zip upload
                                         echo "set ssl:verify-certificate no
                                         set ftp:ssl-allow no
+                                        set net:max-retries 3
+                                        set net:timeout 60
                                         open ftp://${AEONFREE_HOST}
                                         user ${FTP_USER} ${FTP_PASS}
                                         cd ${AEONFREE_PATH}
-                                        put /tmp/deploy.zip -o deploy.zip
+                                        put -v /tmp/deploy.zip -o deploy.zip
+                                        put -v /tmp/extract.php -o extract.php
                                         quit" > /tmp/lftp_script
                                         
                                         # Show lftp version and capabilities
@@ -307,13 +349,63 @@ pipeline {
                                         while [ "$attempt" -le "$max_retries" ]; do
                                             if lftp -f /tmp/lftp_script; then
                                                 echo "FTP upload successful!"
+                                                break
+                                            fi
+                                            if [ "$attempt" -eq "$max_retries" ]; then
+                                                echo "All FTP upload attempts failed"
                                                 rm /tmp/lftp_script
-                                                exit 0
+                                                exit 1
                                             fi
                                             echo "FTP attempt $attempt failed. Retrying in 10s..."
                                             sleep 10
                                             attempt=$((attempt+1))
                                         done
+                                        
+                                        # Wait for files to be ready
+                                        echo "Waiting for files to settle..."
+                                        sleep 5
+                                        
+                                        # Execute extraction via curl with retries
+                                        echo "Starting extraction process..."
+                                        max_extract_retries=3
+                                        extract_attempt=1
+                                        
+                                        while [ "$extract_attempt" -le "$max_extract_retries" ]; do
+                                            echo "Extraction attempt $extract_attempt of $max_extract_retries"
+                                            
+                                            response=$(curl -v -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
+                                            echo "Extraction response: $response"
+                                            
+                                            if [[ "$response" == *"Extraction complete"* ]]; then
+                                                echo "Extraction successful!"
+                                                break
+                                            fi
+                                            
+                                            if [ "$extract_attempt" -eq "$max_extract_retries" ]; then
+                                                echo "All extraction attempts failed"
+                                                exit 1
+                                            fi
+                                            
+                                            echo "Extraction attempt failed, waiting 10s before retry..."
+                                            sleep 10
+                                            extract_attempt=$((extract_attempt + 1))
+                                        done
+                                        
+                                        # Clean up
+                                        echo "Cleaning up temporary files..."
+                                        rm -f /tmp/lftp_script /tmp/extract.php
+                                        
+                                        # Clean up remote extract.php
+                                        echo "set ssl:verify-certificate no
+                                        set ftp:ssl-allow no
+                                        open ftp://${AEONFREE_HOST}
+                                        user ${FTP_USER} ${FTP_PASS}
+                                        cd ${AEONFREE_PATH}
+                                        rm -f extract.php
+                                        quit" > /tmp/lftp_cleanup
+                                        
+                                        lftp -f /tmp/lftp_cleanup || true
+                                        rm -f /tmp/lftp_cleanup
                                         echo "All FTP attempts failed"
                                         rm /tmp/lftp_script
                                         exit 1
