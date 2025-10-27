@@ -235,7 +235,7 @@ pipeline {
                                             exit 1
                                         fi
                                         
-                                        # Create lftp script
+                                        # Create initial lftp script for upload
                                         echo "set ssl:verify-certificate no
                                         set ftp:ssl-allow no
                                         open ftp://${AEONFREE_HOST}
@@ -247,6 +247,59 @@ pipeline {
                                         # Show lftp version and capabilities
                                         echo "LFTP version:"
                                         lftp --version
+                                        
+                                        # Upload zip file
+                                        echo "Uploading zip file..."
+                                        if ! lftp -f /tmp/lftp_script; then
+                                            echo "Failed to upload zip file!"
+                                            exit 1
+                                        fi
+                                        
+                                        # Create unzip script
+                                        echo "Creating unzip script..."
+                                        echo '<?php
+                                        $zip = new ZipArchive;
+                                        $res = $zip->open("deploy.zip");
+                                        if ($res === TRUE) {
+                                            $zip->extractTo(".");
+                                            $zip->close();
+                                            unlink("deploy.zip");
+                                            echo "Extraction complete";
+                                        } else {
+                                            echo "Failed to extract zip";
+                                        }
+                                        ?>' > /tmp/extract.php
+                                        
+                                        # Upload extract script
+                                        echo "set ssl:verify-certificate no
+                                        set ftp:ssl-allow no
+                                        open ftp://${AEONFREE_HOST}
+                                        user ${FTP_USER} ${FTP_PASS}
+                                        cd ${AEONFREE_PATH}
+                                        put /tmp/extract.php -o extract.php
+                                        quit" > /tmp/lftp_script_extract
+                                        
+                                        echo "Uploading extraction script..."
+                                        if ! lftp -f /tmp/lftp_script_extract; then
+                                            echo "Failed to upload extraction script!"
+                                            exit 1
+                                        fi
+                                        
+                                        # Execute extraction via curl
+                                        echo "Extracting zip file..."
+                                        curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php"
+                                        
+                                        # Clean up extraction script
+                                        echo "set ssl:verify-certificate no
+                                        set ftp:ssl-allow no
+                                        open ftp://${AEONFREE_HOST}
+                                        user ${FTP_USER} ${FTP_PASS}
+                                        cd ${AEONFREE_PATH}
+                                        rm extract.php
+                                        quit" > /tmp/lftp_script_cleanup
+                                        
+                                        echo "Cleaning up..."
+                                        lftp -f /tmp/lftp_script_cleanup || true
 
                                         # Execute lftp with retries
                                         max_retries=3
