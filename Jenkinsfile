@@ -11,7 +11,7 @@ pipeline {
         RENDER_DEPLOY_HOOK = credentials('RENDER_DEPLOY_HOOK')
         // Aeonfree deployment - configure these in Jenkins (leave empty to skip)
         AEONFREE_HOST = 'laravel-dynamic.iceiy.com'                         // ftp.example.com or host.example.com
-        AEONFREE_PATH = 'home/htdocs'                         // remote path where to upload the artifact
+        AEONFREE_PATH = 'htdocs'                         // remote path where to upload the artifact
     // Note: Credential IDs are stored in  Jenkins credentials store. We will bind them via withCredentials in the deploy stage.
     }
 
