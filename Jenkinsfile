@@ -140,12 +140,53 @@ pipeline {
                         echo 'AEONFREE_HOST not configured; skipping Aeonfree deployment.'
                     } else {
                         echo "Preparing deploy artifact for ${env.AEONFREE_HOST}..."
+                        // Install zip if not available
+                        sh '''
+                            if ! command -v zip >/dev/null 2>&1; then
+                                if command -v apt-get >/dev/null 2>&1; then
+                                    apt-get update && apt-get install -y zip
+                                elif command -v yum >/dev/null 2>&1; then
+                                    yum install -y zip
+                                elif command -v apk >/dev/null 2>&1; then
+                                    apk add --no-cache zip
+                                else
+                                    echo "No supported package manager found. Please install zip manually."
+                                    exit 1
+                                fi
+                            fi
+                        '''
+                        
                         // Create zip archive
                         sh '''
                             set -e
+                            # Ensure we're in the project directory
+                            cd "${WORKSPACE}"
+                            
+                            # Clean up any existing zip
                             rm -f /tmp/deploy.zip || true
-                            zip -r /tmp/deploy.zip . -x ".git/*" "vendor/*" "node_modules/*" "storage/*" "tests/*" "build/*" || true
-                            ls -lh /tmp/deploy.zip || true
+                            
+                            # Create the zip with verbose output for debugging
+                            echo "Creating zip archive in ${PWD}..."
+                            zip -v -r /tmp/deploy.zip . \
+                                -x ".git/*" \
+                                -x "vendor/*" \
+                                -x "node_modules/*" \
+                                -x "storage/*" \
+                                -x "tests/*" \
+                                -x "build/*" \
+                                -x ".env" || true
+                            
+                            # Verify the zip was created
+                            if [ ! -f /tmp/deploy.zip ]; then
+                                echo "Failed to create zip file!"
+                                exit 1
+                            fi
+                            
+                            # Show the zip contents and size
+                            echo "Zip file details:"
+                            ls -lh /tmp/deploy.zip
+                            echo "Zip contents:"
+                            unzip -l /tmp/deploy.zip | head -n 10
                         '''
 
                         // Try SSH deploy first
@@ -188,6 +229,12 @@ pipeline {
                                 withCredentials([usernamePassword(credentialsId: 'AEONFREE_FTP_CREDENTIALS', usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
                                     sh '''
                                         set -e
+                                        # Verify zip exists before FTP
+                                        if [ ! -f /tmp/deploy.zip ]; then
+                                            echo "Error: /tmp/deploy.zip not found!"
+                                            exit 1
+                                        fi
+                                        
                                         # Create lftp script
                                         echo "set ssl:verify-certificate no
                                         set ftp:ssl-allow no
@@ -196,6 +243,10 @@ pipeline {
                                         cd ${AEONFREE_PATH}
                                         put /tmp/deploy.zip -o deploy.zip
                                         quit" > /tmp/lftp_script
+                                        
+                                        # Show lftp version and capabilities
+                                        echo "LFTP version:"
+                                        lftp --version
 
                                         # Execute lftp with retries
                                         max_retries=3
