@@ -166,6 +166,8 @@ pipeline {
                             zip -r /tmp/deploy.zip . -x "storage/*" "tests/*" "build/*"
                             
                             echo "Archive created successfully"
+                        '''
+                        
                         // Install zip if not available
                         script {
                             def checkPackageManager = { manager ->
