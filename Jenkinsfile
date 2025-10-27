@@ -274,7 +274,65 @@ pipeline {
                                         }
                                         ?>' > /tmp/extract.php
 
-                                        # Create lftp script for upload and extraction
+                                        # First create the extraction script
+                                        echo '<?php
+                                        header("Content-Type: text/plain");
+                                        error_reporting(E_ALL);
+                                        ini_set("display_errors", 1);
+                                        
+                                        function checkZipFile() {
+                                            if (!file_exists("deploy.zip")) {
+                                                echo "ERROR: deploy.zip not found";
+                                                return false;
+                                            }
+                                            return true;
+                                        }
+                                        
+                                        function extractZip() {
+                                            $zip = new ZipArchive();
+                                            $res = $zip->open("deploy.zip");
+                                            if ($res !== TRUE) {
+                                                echo "ERROR: Failed to open ZIP (error code: " . $res . ")";
+                                                return false;
+                                            }
+                                            
+                                            if (!$zip->extractTo(".")) {
+                                                $zip->close();
+                                                echo "ERROR: Failed to extract files";
+                                                return false;
+                                            }
+                                            
+                                            $zip->close();
+                                            return true;
+                                        }
+                                        
+                                        function cleanup() {
+                                            if (file_exists("deploy.zip")) {
+                                                if (!unlink("deploy.zip")) {
+                                                    echo "WARNING: Could not delete deploy.zip";
+                                                    return false;
+                                                }
+                                            }
+                                            return true;
+                                        }
+                                        
+                                        // Main execution
+                                        if (!checkZipFile()) {
+                                            exit(1);
+                                        }
+                                        
+                                        if (!extractZip()) {
+                                            exit(1);
+                                        }
+                                        
+                                        if (cleanup()) {
+                                            echo "SUCCESS: Files extracted and cleaned up";
+                                        } else {
+                                            echo "WARNING: Files extracted but cleanup failed";
+                                        }
+                                        ?>' > /tmp/extract.php
+                                        
+                                        # Now create the lftp script for upload
                                         echo "debug 3
                                         set ssl:verify-certificate no
                                         set ftp:ssl-allow no
@@ -285,12 +343,9 @@ pipeline {
                                         open ftp://${AEONFREE_HOST}
                                         user ${FTP_USER} ${FTP_PASS}
                                         cd ${AEONFREE_PATH}
-                                        # Upload the zip file
+                                        # Upload both files
                                         put /tmp/deploy.zip -o deploy.zip
-                                        # Execute unzip command
-                                        quote SITE UNZIP deploy.zip
-                                        # Remove the zip file after extraction
-                                        rm -f deploy.zip
+                                        put /tmp/extract.php -o extract.php
                                         quit" > /tmp/lftp_script
                                         
                                         # Show lftp version and capabilities
@@ -304,15 +359,15 @@ pipeline {
                                             exit 1
                                         fi
                                         
-                                        echo "Attempting upload and extraction..."
+                                        echo "Starting upload process..."
                                         max_retries=3
                                         attempt=1
                                         
                                         while [ $attempt -le $max_retries ]; do
-                                            echo "Attempt $attempt of $max_retries..."
+                                            echo "Upload attempt $attempt of $max_retries..."
                                             
                                             if lftp -f /tmp/lftp_script; then
-                                                echo "Upload successful!"
+                                                echo "Files uploaded successfully!"
                                                 break
                                             fi
                                             
@@ -326,8 +381,43 @@ pipeline {
                                             attempt=$((attempt + 1))
                                         done
                                         
-                                        # Try shell-based unzip as fallback
-                                        echo "Attempting shell-based extraction..."
+                                        echo "Waiting for files to be ready..."
+                                        sleep 5
+                                        
+                                        echo "Starting extraction process..."
+                                        max_extract_retries=3
+                                        extract_attempt=1
+                                        
+                                        while [ $extract_attempt -le $max_extract_retries ]; do
+                                            echo "Extraction attempt $extract_attempt of $max_extract_retries..."
+                                            
+                                            response=$(curl -s "http://${AEONFREE_HOST}/${AEONFREE_PATH}/extract.php")
+                                            echo "Server response: $response"
+                                            
+                                            if [[ "$response" == *"SUCCESS"* ]]; then
+                                                echo "Extraction completed successfully!"
+                                                break
+                                            elif [[ "$response" == *"ERROR"* ]]; then
+                                                echo "Extraction failed with error"
+                                                if [ $extract_attempt -eq $max_extract_retries ]; then
+                                                    echo "All extraction attempts failed"
+                                                    exit 1
+                                                fi
+                                            else
+                                                echo "Unexpected response from server"
+                                                if [ $extract_attempt -eq $max_extract_retries ]; then
+                                                    echo "All extraction attempts failed"
+                                                    exit 1
+                                                fi
+                                            fi
+                                            
+                                            echo "Waiting before next attempt..."
+                                            sleep 10
+                                            extract_attempt=$((extract_attempt + 1))
+                                        done
+                                        
+                                        # Clean up the extract.php file
+                                        echo "Cleaning up..."
                                         echo "debug 3
                                         set ssl:verify-certificate no
                                         set ftp:ssl-allow no
@@ -336,20 +426,13 @@ pipeline {
                                         open ftp://${AEONFREE_HOST}
                                         user ${FTP_USER} ${FTP_PASS}
                                         cd ${AEONFREE_PATH}
-                                        # Try to use shell unzip command
-                                        quote SITE EXEC unzip -o deploy.zip
-                                        # Remove the zip file after extraction
-                                        rm -f deploy.zip
-                                        quit" > /tmp/lftp_extract
+                                        rm -f extract.php
+                                        quit" > /tmp/lftp_cleanup
                                         
-                                        if ! lftp -f /tmp/lftp_extract; then
-                                            echo "Warning: Shell-based extraction failed. Files are uploaded but may need manual extraction."
-                                        else
-                                            echo "Shell-based extraction completed successfully."
-                                        fi
+                                        lftp -f /tmp/lftp_cleanup || true
                                         
-                                        # Clean up temporary files
-                                        rm -f /tmp/lftp_script /tmp/lftp_extract
+                                        # Clean up local temporary files
+                                        rm -f /tmp/lftp_script /tmp/lftp_cleanup /tmp/extract.php
                                         
                                         # Clean up extraction script
                                         echo "set ssl:verify-certificate no
