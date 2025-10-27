@@ -275,32 +275,21 @@ pipeline {
                                         ?>' > /tmp/extract.php
 
                                         # Create lftp script for direct file upload
-                                        echo "debug 3
-                                        set ssl:verify-certificate no
-                                        set ftp:ssl-allow no
-                                        set net:max-retries 3
-                                        set net:timeout 60
-                                        set xfer:log yes
-                                        set xfer:show-status yes
-                                        set mirror:parallel-transfer-count 5
-                                        open ftp://${AEONFREE_HOST}
-                                        user ${FTP_USER} ${FTP_PASS}
-                                        lcd ${WORKSPACE}
-                                        cd ${AEONFREE_PATH}
-                                        # Mirror command to sync all files
-                                        mirror --reverse \\
-                                            --exclude .git/ \\
-                                            --exclude .env \\
-                                            --exclude vendor/ \\
-                                            --exclude node_modules/ \\
-                                            --exclude storage/ \\
-                                            --exclude tests/ \\
-                                            --exclude .gitignore \\
-                                            --exclude .gitattributes \\
-                                            --delete \\
-                                            --verbose \\
-                                            ./ ./
-                                        quit" > /tmp/lftp_script
+                                        echo "set cmd:fail-exit yes;
+                                        debug 3;
+                                        set ssl:verify-certificate no;
+                                        set ftp:ssl-allow no;
+                                        set net:max-retries 3;
+                                        set net:timeout 60;
+                                        set xfer:log yes;
+                                        set xfer:show-status yes;
+                                        set mirror:parallel-transfer-count 5;
+                                        open ftp://${AEONFREE_HOST};
+                                        user ${FTP_USER} ${FTP_PASS};
+                                        lcd ${WORKSPACE};
+                                        cd ${AEONFREE_PATH};
+                                        mirror --reverse --exclude-glob .git/ --exclude-glob .env --exclude-glob vendor/ --exclude-glob node_modules/ --exclude-glob storage/ --exclude-glob tests/ --exclude-glob .gitignore --exclude-glob .gitattributes --delete --verbose ./ ./;
+                                        quit;" > /tmp/lftp_script
                                             echo date("Y-m-d H:i:s") . " - " . $message . "\\n";
                                         }
                                         
@@ -458,29 +447,38 @@ pipeline {
                                         echo "Starting direct file upload process..."
                                         max_retries=3
                                         attempt=1
+                                        success=0
                                         
-                                        while [ $attempt -le $max_retries ]; do
+                                        while [ "$attempt" -le "$max_retries" ]
+                                        do
                                             echo "Upload attempt $attempt of $max_retries..."
                                             
-                                            if lftp -f /tmp/lftp_script; then
+                                            if lftp -f /tmp/lftp_script
+                                            then
                                                 echo "Files uploaded successfully!"
+                                                success=1
                                                 break
                                             fi
                                             
-                                            if [ $attempt -eq $max_retries ]; then
+                                            if [ "$attempt" -eq "$max_retries" ]
+                                            then
                                                 echo "All upload attempts failed"
+                                                rm -f /tmp/lftp_script
                                                 exit 1
                                             fi
                                             
                                             echo "Upload attempt failed. Waiting before retry..."
                                             sleep 10
-                                            attempt=$((attempt + 1))
+                                            attempt=`expr $attempt + 1`
                                         done
                                         
                                         # Clean up temporary files
                                         rm -f /tmp/lftp_script
                                         
-                                        echo "File synchronization completed successfully!"
+                                        if [ "$success" -eq 1 ]
+                                        then
+                                            echo "File synchronization completed successfully!"
+                                        fi
                                         
                                         # Clean up extraction script
                                         echo "set ssl:verify-certificate no
