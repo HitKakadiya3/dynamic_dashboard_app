@@ -196,13 +196,9 @@ pipeline {
                         // Create zip archive
                         sh '''
                             set -e
-                            # Ensure we're in the project directory
                             cd "${WORKSPACE}"
-                            
-                            # Clean up any existing zip
                             rm -f /tmp/deploy.zip || true
                             
-                            # Create the zip with verbose output for debugging
                             echo "Creating zip archive in ${PWD}..."
                             zip -v -r /tmp/deploy.zip . \
                                 -x ".git/*" \
@@ -213,13 +209,11 @@ pipeline {
                                 -x "build/*" \
                                 -x ".env" || true
                             
-                            # Verify the zip was created
                             if [ ! -f /tmp/deploy.zip ]; then
                                 echo "Failed to create zip file!"
                                 exit 1
                             fi
                             
-                            # Show the zip contents and size
                             echo "Zip file details:"
                             ls -lh /tmp/deploy.zip
                             echo "Zip contents:"
@@ -602,15 +596,12 @@ EOF
                                             exit 1
                                         fi
                                         
-                                        echo "Starting upload process..."
-                                        max_retries=3
-                                        attempt=1
-                                        
-                                        while [ "$attempt" -le "$max_retries" ]
-                                        do
-                                            echo "Upload attempt $attempt of $max_retries..."
-                                            
-                                            if lftp -f /tmp/lftp_script
+                            echo "Starting upload process..."
+                            max_retries=3
+                            attempt=1
+                            
+                            while [ "$attempt" -le "$max_retries" ]; do
+                                echo "Upload attempt $attempt of $max_retries..."                                            if lftp -f /tmp/lftp_script
                                             then
                                                 echo "Files uploaded successfully!"
                                                 break
