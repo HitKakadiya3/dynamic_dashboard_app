@@ -60,24 +60,22 @@ lcd .
 cd ${AEONFREE_PATH}
 mirror -R \
     --verbose \
-    --only-newer \
+    --delete \
     --parallel=2 \
-    --include .env \
-    --include vendor/ \
-    --include node_modules/ \
-    --include .htaccess \
-    --exclude .git/ \
-    --exclude .github/ \
-    --exclude .gitlab/ \
-    --exclude tests/ \
-    --exclude storage/logs/ \
-    --exclude build/ \
-    --exclude tmp/ \
+    --include-glob "*" \
+    --include-glob ".*" \
+    --exclude-glob ".git*" \
+    --exclude-glob ".github*" \
+    --exclude-glob ".gitlab*" \
+    --exclude-glob "tests/*" \
+    --exclude-glob "storage/logs/*" \
+    --exclude-glob "build/*" \
+    --exclude-glob "tmp/*" \
     .
 bye
 EOF
 
-                        echo "📂 Uploading all files (including .env, vendor, node_modules)..."
+                        echo "📂 Uploading all files and folders (including hidden ones)..."
                         lftp -f /tmp/lftp_mirror_script
 
                         echo "✅ Deployment completed successfully!"
@@ -89,7 +87,7 @@ EOF
 
     post {
         success {
-            echo "✅ FTP deployment finished successfully — all files uploaded!"
+            echo "✅ FTP deployment finished successfully — all files and folders uploaded!"
         }
         failure {
             echo "❌ FTP deployment failed!"
