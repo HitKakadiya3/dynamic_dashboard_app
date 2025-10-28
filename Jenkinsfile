@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         AEONFREE_HOST = 'ftpupload.net'               // FTP host
-        AEONFREE_PATH = 'htdocs'  // Remote path on FTP
+        AEONFREE_PATH = 'htdocs'                      // Remote path on FTP
         FTP_CREDENTIALS = 'AEONFREE_FTP_CREDENTIALS'  // Jenkins credential ID
         SITE_URL = 'https://laravel-dynamic.iceiy.com'
     }
@@ -39,17 +39,48 @@ pipeline {
             }
         }
 
-        stage('Deploy Files to FTP') {
+        stage('Deploy to FTP & Run Laravel Commands') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS}", usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
                     sh '''
-                        set -e
+                        set -e  # Exit immediately if any command fails
                         echo "🚀 Starting FTP deployment..."
-                        echo "📂 Workspace: $(pwd)"
+                        echo "📁 Current workspace: $(pwd)"
                         ls -la
 
-                        echo "📄 Preparing lftp upload script..."
-                        cat > /tmp/lftp_upload_script <<EOF
+                        # Create a temporary Laravel maintenance script
+                        cat > artisan-clear.php <<'PHP'
+                        <?php
+                        error_reporting(E_ALL);
+                        ini_set('display_errors', 1);
+                        echo "<pre>🧹 Running Laravel maintenance commands...\\n";
+
+                        require __DIR__ . '/vendor/autoload.php';
+                        $app = require_once __DIR__ . '/bootstrap/app.php';
+                        $kernel = $app->make(Illuminate\\Contracts\\Console\\Kernel::class);
+
+                        $commands = [
+                            'config:clear',
+                            'cache:clear',
+                            'route:clear',
+                            'view:clear',
+                            'config:cache',
+                            'migrate:fresh --force'
+                        ];
+
+                        foreach ($commands as $cmd) {
+                            echo "\\n> php artisan {$cmd}\\n";
+                            $kernel->call($cmd);
+                            echo $kernel->output();
+                        }
+
+                        echo "\\n✅ All Laravel tasks completed successfully!\\n</pre>";
+                        PHP
+
+                        echo "✅ Generated artisan-clear.php"
+
+                        echo "📂 Preparing lftp upload script..."
+                        cat > /tmp/lftp_mirror_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
 set net:max-retries 3
@@ -59,84 +90,52 @@ open ftp://${AEONFREE_HOST}
 user ${FTP_USER} ${FTP_PASS}
 lcd $(pwd)
 cd ${AEONFREE_PATH}
-mirror -R --verbose --parallel=2 --no-perms \\
+mirror -R --verbose --delete --parallel=2 \\
     --include-glob "*" \\
     --include-glob ".*" \\
-    --exclude-glob ".git/*" \\
-    --exclude-glob ".github/*" \\
+    --exclude-glob ".git*" \\
+    --exclude-glob ".github*" \\
+    --exclude-glob ".gitlab*" \\
     --exclude-glob "tests/*" \\
     --exclude-glob "storage/logs/*" \\
-    --exclude-glob "node_modules/.cache/*"
+    --exclude-glob "build/*" \\
+    --exclude-glob "tmp/*" \\
+    .
 bye
 EOF
 
-                        echo "📤 Uploading files..."
-                        lftp -f /tmp/lftp_upload_script || { echo "❌ FTP upload failed!"; exit 1; }
+                        echo "📤 Uploading all project files via FTP..."
+                        lftp -d -f /tmp/lftp_mirror_script || { echo "❌ FTP upload failed!"; exit 1; }
 
-                        echo "✅ Files uploaded successfully."
-                    '''
-                }
-            }
-        }
+                        echo "🌐 Triggering Laravel maintenance on live site..."
+                        curl -fsS ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely."
 
-        stage('Trigger Laravel Maintenance') {
-            steps {
-                echo "🌐 Running Laravel maintenance remotely..."
-                sh '''
-                    set -e
-                    echo "<?php
-                    error_reporting(E_ALL);
-                    ini_set('display_errors', 1);
-                    echo '<pre>Running Laravel maintenance...\\n';
-                    require __DIR__ . '/vendor/autoload.php';
-                    \$app = require_once __DIR__ . '/bootstrap/app.php';
-                    \$kernel = \$app->make(Illuminate\\\\Contracts\\\\Console\\\\Kernel::class);
-                    foreach (['config:clear','cache:clear','route:clear','view:clear','config:cache'] as \$cmd) {
-                        echo '> php artisan ' . \$cmd . '\\n';
-                        \$kernel->call(\$cmd);
-                        echo \$kernel->output();
-                    }
-                    echo '\\n✅ Done.\\n</pre>';
-                    ?>" > artisan-clear.php
-
-                    echo "📤 Uploading maintenance script..."
-                    cat > /tmp/lftp_artisan_script <<EOF
+                        echo "🧽 Cleaning up remote maintenance script..."
+                        cat > /tmp/lftp_delete_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
-open ftp://${AEONFREE_HOST}
-user ${FTP_USER} ${FTP_PASS}
-lcd $(pwd)
-cd ${AEONFREE_PATH}
-put artisan-clear.php
-bye
-EOF
-                    lftp -f /tmp/lftp_artisan_script
-
-                    echo "⚡ Executing artisan-clear.php on site..."
-                    curl -fsS ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely."
-
-                    echo "🧹 Deleting artisan-clear.php from server..."
-                    cat > /tmp/lftp_delete_script <<EOF
-set ftp:ssl-allow no
-set ssl:verify-certificate no
+set cmd:fail-exit true
 open ftp://${AEONFREE_HOST}
 user ${FTP_USER} ${FTP_PASS}
 cd ${AEONFREE_PATH}
 rm artisan-clear.php
 bye
 EOF
-                    lftp -f /tmp/lftp_delete_script || echo "⚠️ Cleanup failed."
-                '''
+                        lftp -f /tmp/lftp_delete_script || echo "⚠️ Could not delete artisan-clear.php"
+
+                        echo "✅ FTP deployment completed successfully!"
+                    '''
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ Deployment finished successfully — files uploaded and Laravel cleared!"
+            echo "✅ FTP deployment finished successfully — all files uploaded, caches cleared, and DB migrated!"
         }
         failure {
-            echo "❌ Deployment failed — check Jenkins logs for errors."
+            echo "❌ FTP deployment failed — check Jenkins console for errors."
         }
     }
 }
