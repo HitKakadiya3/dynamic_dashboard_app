@@ -1,17 +1,16 @@
 <?php
-error_reporting(E_ALL);
-ini_set('display_errors', 1);
-echo "<pre>Running migrations...\n";
+    error_reporting(E_ALL);
+    ini_set('display_errors', 1);
+    echo "<pre>Creating sessions table and migrating...\n";
 
-// Ensure sessions do not use the database when running via web
-putenv('SESSION_DRIVER=file');
-$_ENV['SESSION_DRIVER'] = 'file';
-$_SERVER['SESSION_DRIVER'] = 'file';
+    require __DIR__.'/vendor/autoload.php';
+    $app = require_once __DIR__.'/bootstrap/app.php';
+    $kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
 
-require __DIR__.'/vendor/autoload.php';
-$app = require_once __DIR__.'/bootstrap/app.php';
-$kernel = $app->make(Illuminate\Contracts\Console\Kernel::class);
+    $kernel->call('session:table');
+    echo $kernel->output();
 
-$kernel->call('migrate --force');
-echo $kernel->output();
-echo "\n✅ Migration done.\n</pre>";
+    $kernel->call('migrate --force');
+    echo $kernel->output();
+
+    echo "\n✅ Sessions table created and migrations done.\n</pre>";
