@@ -43,10 +43,10 @@ pipeline {
                     sh '''
                         echo "🚀 Starting FTP deployment..."
 
-                        # Verify important folders
-                        [ -f .env ] && echo "✅ Found .env file"
-                        [ -d vendor ] && echo "✅ Found vendor folder"
-                        [ -d node_modules ] && echo "✅ Found node_modules folder"
+                        # Verify important files and folders
+                        [ -f .env ] && echo "✅ Found .env file" || echo "⚠️ Missing .env file!"
+                        [ -d vendor ] && echo "✅ Found vendor folder" || echo "⚠️ Missing vendor folder!"
+                        [ -d node_modules ] && echo "✅ Found node_modules folder" || echo "⚠️ Missing node_modules folder!"
 
                         # Create LFTP script for mirroring
                         cat > /tmp/lftp_mirror_script <<EOF
@@ -56,20 +56,28 @@ set net:max-retries 3
 set net:timeout 60
 open ftp://${AEONFREE_HOST}
 user ${FTP_USER} ${FTP_PASS}
+lcd .
+cd ${AEONFREE_PATH}
 mirror -R \
     --verbose \
     --only-newer \
     --parallel=2 \
+    --include .env \
+    --include vendor/ \
+    --include node_modules/ \
+    --include .htaccess \
     --exclude .git/ \
     --exclude .github/ \
     --exclude .gitlab/ \
-    --exclude .gitignore \
-    --exclude .gitattributes \
-    ./ ${AEONFREE_PATH}
+    --exclude tests/ \
+    --exclude storage/logs/ \
+    --exclude build/ \
+    --exclude tmp/ \
+    .
 bye
 EOF
 
-                        echo "📂 Uploading all files to FTP (including .env, vendor, node_modules)..."
+                        echo "📂 Uploading all files (including .env, vendor, node_modules)..."
                         lftp -f /tmp/lftp_mirror_script
 
                         echo "✅ Deployment completed successfully!"
