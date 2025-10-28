@@ -38,38 +38,47 @@ pipeline {
             }
         }
 
-        stage('Deploy to FTP') {
+        stage('Deploy to FTP & Run Laravel Commands') {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS}", usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
                     sh '''
                         echo "🚀 Starting FTP deployment..."
 
-                        # Create a temporary PHP script to clear Laravel caches after upload
+                        # Create a temporary PHP script to clear caches and migrate DB
                         cat > artisan-clear.php <<'PHP'
                         <?php
                         error_reporting(E_ALL);
                         ini_set('display_errors', 1);
-                        echo "🧹 Running Laravel cache clear commands...<br>";
+                        echo "<pre>🧹 Running Laravel maintenance commands...\\n";
 
                         require __DIR__ . '/vendor/autoload.php';
                         $app = require_once __DIR__ . '/bootstrap/app.php';
                         $kernel = $app->make(Illuminate\\Contracts\\Console\\Kernel::class);
 
-                        $commands = ['config:clear', 'cache:clear', 'route:clear', 'view:clear'];
+                        $commands = [
+                            'config:clear',
+                            'cache:clear',
+                            'route:clear',
+                            'view:clear',
+                            'config:cache',
+                            'migrate:fresh --force'
+                        ];
+
                         foreach ($commands as $cmd) {
-                            echo "Running: php artisan {$cmd}<br>";
-                            $kernel->call($cmd);
+                            echo "\\n> php artisan {$cmd}\\n";
+                            $output = $kernel->call($cmd);
+                            echo $kernel->output();
                         }
 
-                        echo "<br>✅ All Laravel caches cleared successfully!";
+                        echo "\\n✅ All Laravel tasks completed successfully!\\n</pre>";
                         PHP
 
-                        # Verify important files and folders
-                        [ -f .env ] && echo "✅ Found .env file" || echo "⚠️ Missing .env file!"
-                        [ -d vendor ] && echo "✅ Found vendor folder" || echo "⚠️ Missing vendor folder!"
-                        [ -d node_modules ] && echo "✅ Found node_modules folder" || echo "⚠️ Missing node_modules folder!"
+                        # Confirm critical assets
+                        [ -f .env ] && echo "✅ Found .env" || echo "⚠️ Missing .env!"
+                        [ -d vendor ] && echo "✅ Found vendor" || echo "⚠️ Missing vendor!"
+                        [ -d node_modules ] && echo "✅ Found node_modules" || echo "⚠️ Missing node_modules!"
 
-                        # Create LFTP script for mirroring
+                        # Prepare LFTP mirror script
                         cat > /tmp/lftp_mirror_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
@@ -96,13 +105,13 @@ mirror -R \
 bye
 EOF
 
-                        echo "📂 Uploading all files and folders (including hidden ones)..."
+                        echo "📂 Uploading all files to FTP (including hidden ones)..."
                         lftp -f /tmp/lftp_mirror_script
 
-                        echo "🌐 Triggering Laravel cache clear on server..."
+                        echo "🌐 Triggering Laravel maintenance (cache clear + migrate:fresh)..."
                         curl -s ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely."
 
-                        echo "🧽 Removing temporary cleanup script from server..."
+                        echo "🧽 Cleaning up remote temporary file..."
                         cat > /tmp/lftp_delete_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
@@ -114,7 +123,7 @@ bye
 EOF
                         lftp -f /tmp/lftp_delete_script || echo "⚠️ Could not delete artisan-clear.php"
 
-                        echo "✅ Deployment completed successfully!"
+                        echo "✅ Deployment + Laravel commands completed!"
                     '''
                 }
             }
@@ -123,7 +132,7 @@ EOF
 
     post {
         success {
-            echo "✅ FTP deployment finished successfully — all files uploaded and Laravel caches cleared!"
+            echo "✅ FTP deployment finished successfully — all files uploaded, caches cleared, and DB migrated!"
         }
         failure {
             echo "❌ FTP deployment failed!"
