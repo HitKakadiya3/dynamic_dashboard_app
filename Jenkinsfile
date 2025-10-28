@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         AEONFREE_HOST = 'ftpupload.net'               // FTP host
-        AEONFREE_PATH = 'htdocs'                      // Remote path on FTP
+        AEONFREE_PATH = '/home/vol10_1/iceiy.com/icei_40189342/htdocs'                      // Remote path on FTP
         FTP_CREDENTIALS = 'AEONFREE_FTP_CREDENTIALS'  // Jenkins credential ID
         SITE_URL = 'https://laravel-dynamic.iceiy.com'
     }
