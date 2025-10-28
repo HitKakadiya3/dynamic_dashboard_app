@@ -4,8 +4,8 @@ pipeline {
     environment {
         AEONFREE_HOST = 'ftpupload.net'               // FTP host
         AEONFREE_PATH = 'htdocs'                      // Remote path on FTP
-        FTP_CREDENTIALS = 'AEONFREE_FTP_CREDENTIALS'  // Jenkins credential ID (username + password)
-        SITE_URL = 'https://laravel-dynamic.iceiy.com' // Your live site URL
+        FTP_CREDENTIALS = 'AEONFREE_FTP_CREDENTIALS'  // Jenkins credential ID
+        SITE_URL = 'https://laravel-dynamic.iceiy.com'
     }
 
     stages {
@@ -19,6 +19,7 @@ pipeline {
         stage('Install FTP Client') {
             steps {
                 sh '''
+                    set -e
                     echo "🔧 Checking for lftp..."
                     if ! command -v lftp >/dev/null 2>&1; then
                         echo "Installing lftp..."
@@ -42,9 +43,12 @@ pipeline {
             steps {
                 withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS}", usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
                     sh '''
+                        set -e  # Exit immediately if any command fails
                         echo "🚀 Starting FTP deployment..."
+                        echo "📁 Current workspace: $(pwd)"
+                        ls -la
 
-                        # Create a temporary PHP script to clear caches and migrate DB
+                        # Create a temporary Laravel maintenance script
                         cat > artisan-clear.php <<'PHP'
                         <?php
                         error_reporting(E_ALL);
@@ -66,55 +70,51 @@ pipeline {
 
                         foreach ($commands as $cmd) {
                             echo "\\n> php artisan {$cmd}\\n";
-                            $output = $kernel->call($cmd);
+                            $kernel->call($cmd);
                             echo $kernel->output();
                         }
 
                         echo "\\n✅ All Laravel tasks completed successfully!\\n</pre>";
                         PHP
 
-                        # Confirm critical assets
-                        [ -f .env ] && echo "✅ Found .env" || echo "⚠️ Missing .env!"
-                        [ -d vendor ] && echo "✅ Found vendor" || echo "⚠️ Missing vendor!"
-                        [ -d node_modules ] && echo "✅ Found node_modules" || echo "⚠️ Missing node_modules!"
+                        echo "✅ Generated artisan-clear.php"
 
-                        # Prepare LFTP mirror script
+                        echo "📂 Preparing lftp upload script..."
                         cat > /tmp/lftp_mirror_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
 set net:max-retries 3
 set net:timeout 60
+set cmd:fail-exit true
 open ftp://${AEONFREE_HOST}
 user ${FTP_USER} ${FTP_PASS}
-lcd .
+lcd $(pwd)
 cd ${AEONFREE_PATH}
-mirror -R \
-    --verbose \
-    --delete \
-    --parallel=2 \
-    --include-glob "*" \
-    --include-glob ".*" \
-    --exclude-glob ".git*" \
-    --exclude-glob ".github*" \
-    --exclude-glob ".gitlab*" \
-    --exclude-glob "tests/*" \
-    --exclude-glob "storage/logs/*" \
-    --exclude-glob "build/*" \
-    --exclude-glob "tmp/*" \
+mirror -R --verbose --delete --parallel=2 \\
+    --include-glob "*" \\
+    --include-glob ".*" \\
+    --exclude-glob ".git*" \\
+    --exclude-glob ".github*" \\
+    --exclude-glob ".gitlab*" \\
+    --exclude-glob "tests/*" \\
+    --exclude-glob "storage/logs/*" \\
+    --exclude-glob "build/*" \\
+    --exclude-glob "tmp/*" \\
     .
 bye
 EOF
 
-                        echo "📂 Uploading all files to FTP (including hidden ones)..."
-                        lftp -f /tmp/lftp_mirror_script
+                        echo "📤 Uploading all project files via FTP..."
+                        lftp -d -f /tmp/lftp_mirror_script || { echo "❌ FTP upload failed!"; exit 1; }
 
-                        echo "🌐 Triggering Laravel maintenance (cache clear + migrate:fresh)..."
-                        curl -s ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely."
+                        echo "🌐 Triggering Laravel maintenance on live site..."
+                        curl -fsS ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely."
 
-                        echo "🧽 Cleaning up remote temporary file..."
+                        echo "🧽 Cleaning up remote maintenance script..."
                         cat > /tmp/lftp_delete_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
+set cmd:fail-exit true
 open ftp://${AEONFREE_HOST}
 user ${FTP_USER} ${FTP_PASS}
 cd ${AEONFREE_PATH}
@@ -123,7 +123,7 @@ bye
 EOF
                         lftp -f /tmp/lftp_delete_script || echo "⚠️ Could not delete artisan-clear.php"
 
-                        echo "✅ Deployment + Laravel commands completed!"
+                        echo "✅ FTP deployment completed successfully!"
                     '''
                 }
             }
@@ -135,7 +135,7 @@ EOF
             echo "✅ FTP deployment finished successfully — all files uploaded, caches cleared, and DB migrated!"
         }
         failure {
-            echo "❌ FTP deployment failed!"
+            echo "❌ FTP deployment failed — check Jenkins console for errors."
         }
     }
 }
