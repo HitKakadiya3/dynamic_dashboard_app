@@ -2,13 +2,13 @@ pipeline {
     agent any
 
     environment {
-        // FTP configuration
-        AEONFREE_HOST = 'ftpupload.net'
-        AEONFREE_PATH = 'htdocs'
-        FTP_CREDENTIALS = 'AEONFREE_FTP_CREDENTIALS'
+        // free-hosting.org configuration (set these in Jenkins environment or here)
+        FTP_HOST = 'ftpupload.net'                         // e.g. ftp.free-hosting.org (set in Jenkins)
+        FTP_PATH = 'htdocs'                   // remote path root for site content
+        FTP_CREDENTIALS_ID = 'FREEHOSTING_FTP_CREDENTIALS' // Jenkins credential ID (Username with password)
 
         // Site URL for remote maintenance trigger
-        SITE_URL = 'https://laravel-dynamic.iceiy.com'
+        SITE_URL = 'http://laravel-dynamic.yzz.me'                         // e.g. https://your-subdomain.free-hosting.org
     }
 
     stages {
@@ -76,25 +76,27 @@ pipeline {
 
         stage('Deploy Files to FTP') {
             steps {
-                withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS}", usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
+                withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS_ID}", usernameVariable: 'FREEHOSTING_FTP_USER', passwordVariable: 'FREEHOSTING_FTP_PASS')]) {
                     sh '''
                         set -e
 
-                        # Fail fast if creds missing
-                        [ -n "$FTP_USER" ] && [ -n "$FTP_PASS" ] || { echo "❌ Missing FTP credentials"; exit 1; }
+                        # Validate inputs
+                        [ -n "$FREEHOSTING_FTP_USER" ] && [ -n "$FREEHOSTING_FTP_PASS" ] || { echo "❌ Missing FTP credentials"; exit 1; }
+                        [ -n "$FTP_HOST" ] || { echo "❌ Missing FTP_HOST (FTP server)"; exit 1; }
+                        [ -n "$FTP_PATH" ] || { echo "❌ Missing FTP_PATH (remote directory)"; exit 1; }
 
                         echo "📄 Preparing lftp upload script..."
                         cat > /tmp/lftp_upload_script <<EOF
-set ftp:ssl-allow no
 set ftp:passive-mode true
+set ftp:ssl-allow yes
 set ssl:verify-certificate no
 set net:max-retries 3
 set net:timeout 60
 set cmd:fail-exit true
-open ftp://${AEONFREE_HOST}
-user "${FTP_USER}" "${FTP_PASS}"
+open ftp://$FTP_HOST
+user "$FREEHOSTING_FTP_USER" "$FREEHOSTING_FTP_PASS"
 lcd $(pwd)
-cd ${AEONFREE_PATH}
+cd $FTP_PATH
 mirror -R --verbose --parallel=2 --no-perms \
     --include-glob "*" \
     --include-glob ".*" \
@@ -119,12 +121,14 @@ EOF
         stage('Trigger Laravel Maintenance') {
             steps {
                 echo '🌐 Running Laravel maintenance remotely...'
-                withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS}", usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
+                withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS_ID}", usernameVariable: 'FREEHOSTING_FTP_USER', passwordVariable: 'FREEHOSTING_FTP_PASS')]) {
                     sh '''
                         set -e
 
-                        # Fail fast if creds missing
-                        [ -n "$FTP_USER" ] && [ -n "$FTP_PASS" ] || { echo "❌ Missing FTP credentials"; exit 1; }
+                        # Validate inputs
+                        [ -n "$FREEHOSTING_FTP_USER" ] && [ -n "$FREEHOSTING_FTP_PASS" ] || { echo "❌ Missing FTP credentials"; exit 1; }
+                        [ -n "$FTP_HOST" ] || { echo "❌ Missing FTP_HOST (FTP server)"; exit 1; }
+                        [ -n "$FTP_PATH" ] || { echo "❌ Missing FTP_PATH (remote directory)"; exit 1; }
 
                         # Create maintenance script
                         cat > artisan-clear.php <<'PHP'
@@ -145,29 +149,33 @@ PHP
 
                         echo "📤 Uploading maintenance script..."
                         cat > /tmp/lftp_artisan_script <<EOF
-set ftp:ssl-allow no
 set ftp:passive-mode true
+set ftp:ssl-allow yes
 set ssl:verify-certificate no
-open ftp://${AEONFREE_HOST}
-user "${FTP_USER}" "${FTP_PASS}"
+open ftp://$FTP_HOST
+user "$FREEHOSTING_FTP_USER" "$FREEHOSTING_FTP_PASS"
 lcd $(pwd)
-cd ${AEONFREE_PATH}
+cd $FTP_PATH
 put artisan-clear.php
 bye
 EOF
                         lftp -f /tmp/lftp_artisan_script
 
                         echo "⚡ Executing artisan-clear.php on site..."
-                        curl -fsS ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely"
+                        if [ -n "$SITE_URL" ]; then
+                          curl -fsS "$SITE_URL"/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely"
+                        else
+                          echo "ℹ️ SITE_URL not set; skipping remote trigger"
+                        fi
 
                         echo "🧹 Deleting maintenance script from server..."
                         cat > /tmp/lftp_delete_script <<EOF
-set ftp:ssl-allow no
 set ftp:passive-mode true
+set ftp:ssl-allow yes
 set ssl:verify-certificate no
-open ftp://${AEONFREE_HOST}
-user "${FTP_USER}" "${FTP_PASS}"
-cd ${AEONFREE_PATH}
+open ftp://$FTP_HOST
+user "$FREEHOSTING_FTP_USER" "$FREEHOSTING_FTP_PASS"
+cd $FTP_PATH
 rm artisan-clear.php
 bye
 EOF
