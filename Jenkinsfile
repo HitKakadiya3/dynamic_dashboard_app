@@ -76,6 +76,7 @@ pipeline {
                     sh '''
                         set -e
                         echo "🚀 Starting FTP deployment..."
+                        [ -n "$FTP_USER" ] && [ -n "$FTP_PASS" ] || { echo "❌ Missing FTP credentials (FTP_USER/FTP_PASS)."; exit 1; }
                         echo "📂 Workspace: $(pwd)"
                         ls -la
 
@@ -83,11 +84,12 @@ pipeline {
                         cat > /tmp/lftp_upload_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
+set ftp:passive-mode true
 set net:max-retries 3
 set net:timeout 60
 set cmd:fail-exit true
 open ftp://${AEONFREE_HOST}
-user ${FTP_USER} ${FTP_PASS}
+user "${FTP_USER}" "${FTP_PASS}"
 lcd $(pwd)
 cd ${AEONFREE_PATH}
 mirror -R --verbose --parallel=2 --no-perms \
@@ -114,51 +116,56 @@ EOF
         stage('Trigger Laravel Maintenance') {
             steps {
                 echo "🌐 Running Laravel maintenance remotely..."
-                sh '''
-                    set -e
-                    echo "<?php
-                    error_reporting(E_ALL);
-                    ini_set('display_errors', 1);
-                    echo '<pre>Running Laravel maintenance...\\n';
-                    require __DIR__ . '/vendor/autoload.php';
-                    $app = require_once __DIR__ . '/bootstrap/app.php';
-                    $kernel = $app->make(Illuminate\\\\Contracts\\\\Console\\\\Kernel::class);
-                    foreach (['config:clear','cache:clear','route:clear','view:clear','config:cache'] as $cmd) {
-                        echo '> php artisan ' . $cmd . '\\n';
-                        $kernel->call($cmd);
-                        echo $kernel->output();
-                    }
-                    echo '\\n✅ Done.\\n</pre>';
-                    ?>" > artisan-clear.php
+                withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS}", usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
+                    sh '''
+                        set -e
+                        [ -n "$FTP_USER" ] && [ -n "$FTP_PASS" ] || { echo "❌ Missing FTP credentials (FTP_USER/FTP_PASS)."; exit 1; }
+                        echo "<?php
+                        error_reporting(E_ALL);
+                        ini_set('display_errors', 1);
+                        echo '<pre>Running Laravel maintenance...\\n';
+                        require __DIR__ . '/vendor/autoload.php';
+                        $app = require_once __DIR__ . '/bootstrap/app.php';
+                        $kernel = $app->make(Illuminate\\\\Contracts\\\\Console\\\\Kernel::class);
+                        foreach (['config:clear','cache:clear','route:clear','view:clear','config:cache'] as $cmd) {
+                            echo '> php artisan ' . $cmd . '\\n';
+                            $kernel->call($cmd);
+                            echo $kernel->output();
+                        }
+                        echo '\\n✅ Done.\\n</pre>';
+                        ?>" > artisan-clear.php
 
-                    echo "📤 Uploading maintenance script..."
-                    cat > /tmp/lftp_artisan_script <<EOF
+                        echo "📤 Uploading maintenance script..."
+                        cat > /tmp/lftp_artisan_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
+set ftp:passive-mode true
 open ftp://${AEONFREE_HOST}
-user ${FTP_USER} ${FTP_PASS}
+user "${FTP_USER}" "${FTP_PASS}"
 lcd $(pwd)
 cd ${AEONFREE_PATH}
 put artisan-clear.php
 bye
 EOF
-                    lftp -f /tmp/lftp_artisan_script
+                        lftp -f /tmp/lftp_artisan_script
 
-                    echo "⚡ Executing artisan-clear.php on site..."
-                    curl -fsS ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely."
+                        echo "⚡ Executing artisan-clear.php on site..."
+                        curl -fsS ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely."
 
-                    echo "🧹 Deleting artisan-clear.php from server..."
-                    cat > /tmp/lftp_delete_script <<EOF
+                        echo "🧹 Deleting artisan-clear.php from server..."
+                        cat > /tmp/lftp_delete_script <<EOF
 set ftp:ssl-allow no
 set ssl:verify-certificate no
+set ftp:passive-mode true
 open ftp://${AEONFREE_HOST}
-user ${FTP_USER} ${FTP_PASS}
+user "${FTP_USER}" "${FTP_PASS}"
 cd ${AEONFREE_PATH}
 rm artisan-clear.php
 bye
 EOF
-                    lftp -f /tmp/lftp_delete_script || echo "⚠️ Cleanup failed."
-                '''
+                        lftp -f /tmp/lftp_delete_script || echo "⚠️ Cleanup failed."
+                    '''
+                }
             }
         }
     }
