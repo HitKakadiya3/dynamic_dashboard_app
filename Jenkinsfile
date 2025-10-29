@@ -97,7 +97,8 @@ mirror -R --verbose --parallel=2 --no-perms \
     --exclude-glob ".github/*" \
     --exclude-glob "tests/*" \
     --exclude-glob "storage/logs/*" \
-    --exclude-glob "node_modules/.cache/*"
+    --exclude-glob "node_modules/**" \
+    --exclude-glob "vendor/**"
 bye
 EOF
 
