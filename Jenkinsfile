@@ -2,9 +2,12 @@ pipeline {
     agent any
 
     environment {
-        AEONFREE_HOST = 'ftpupload.net'               // FTP host
-        AEONFREE_PATH = 'htdocs'  // Remote path on FTP
-        FTP_CREDENTIALS = 'AEONFREE_FTP_CREDENTIALS'  // Jenkins credential ID
+        // FTP configuration
+        AEONFREE_HOST = 'ftpupload.net'
+        AEONFREE_PATH = 'htdocs'
+        FTP_CREDENTIALS = 'AEONFREE_FTP_CREDENTIALS'
+
+        // Site URL for remote maintenance trigger
         SITE_URL = 'https://laravel-dynamic.iceiy.com'
     }
 
@@ -20,9 +23,9 @@ pipeline {
             steps {
                 sh '''
                     set -e
-                    echo "🔧 Checking for lftp..."
+                    echo "🔧 Ensuring lftp is installed..."
+
                     if ! command -v lftp >/dev/null 2>&1; then
-                        echo "Installing lftp..."
                         if command -v apt-get >/dev/null 2>&1; then
                             apt-get update && apt-get install -y lftp
                         elif command -v yum >/dev/null 2>&1; then
@@ -30,11 +33,11 @@ pipeline {
                         elif command -v apk >/dev/null 2>&1; then
                             apk add --no-cache lftp
                         else
-                            echo "No supported package manager found for lftp!"
-                            exit 1
+                            echo "No supported package manager found for lftp" && exit 1
                         fi
                     fi
-                    echo "✅ lftp is ready."
+
+                    echo "✅ lftp ready"
                 '''
             }
         }
@@ -44,6 +47,7 @@ pipeline {
                 sh '''
                     set -e
                     echo "🧰 Checking Node.js..."
+
                     if ! command -v npm >/dev/null 2>&1; then
                         echo "Installing Node.js 18..."
                         if command -v apt-get >/dev/null 2>&1; then
@@ -55,17 +59,17 @@ pipeline {
                         elif command -v apk >/dev/null 2>&1; then
                             apk add --no-cache nodejs npm
                         else
-                            echo "No supported package manager found for Node.js!"
-                            exit 1
+                            echo "No supported package manager found for Node.js" && exit 1
                         fi
                     fi
 
-                    echo "📦 Installing dependencies..."
+                    echo "📦 Installing dependencies (npm ci)..."
                     npm ci
 
-                    echo "🏗️  Building assets..."
+                    echo "🏗️  Building assets (npm run build)..."
                     npm run build
-                    echo "✅ Frontend build complete."
+
+                    echo "✅ Frontend build complete"
                 '''
             }
         }
@@ -75,16 +79,15 @@ pipeline {
                 withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS}", usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
                     sh '''
                         set -e
-                        echo "🚀 Starting FTP deployment..."
-                        [ -n "$FTP_USER" ] && [ -n "$FTP_PASS" ] || { echo "❌ Missing FTP credentials (FTP_USER/FTP_PASS)."; exit 1; }
-                        echo "📂 Workspace: $(pwd)"
-                        ls -la
+
+                        # Fail fast if creds missing
+                        [ -n "$FTP_USER" ] && [ -n "$FTP_PASS" ] || { echo "❌ Missing FTP credentials"; exit 1; }
 
                         echo "📄 Preparing lftp upload script..."
                         cat > /tmp/lftp_upload_script <<EOF
 set ftp:ssl-allow no
-set ssl:verify-certificate no
 set ftp:passive-mode true
+set ssl:verify-certificate no
 set net:max-retries 3
 set net:timeout 60
 set cmd:fail-exit true
@@ -105,9 +108,9 @@ bye
 EOF
 
                         echo "📤 Uploading files..."
-                        lftp -f /tmp/lftp_upload_script || { echo "❌ FTP upload failed!"; exit 1; }
+                        lftp -f /tmp/lftp_upload_script
 
-                        echo "✅ Files uploaded successfully."
+                        echo "✅ Files uploaded"
                     '''
                 }
             }
@@ -115,31 +118,36 @@ EOF
 
         stage('Trigger Laravel Maintenance') {
             steps {
-                echo "🌐 Running Laravel maintenance remotely..."
+                echo '🌐 Running Laravel maintenance remotely...'
                 withCredentials([usernamePassword(credentialsId: "${FTP_CREDENTIALS}", usernameVariable: 'FTP_USER', passwordVariable: 'FTP_PASS')]) {
                     sh '''
                         set -e
-                        [ -n "$FTP_USER" ] && [ -n "$FTP_PASS" ] || { echo "❌ Missing FTP credentials (FTP_USER/FTP_PASS)."; exit 1; }
-                        echo "<?php
-                        error_reporting(E_ALL);
-                        ini_set('display_errors', 1);
-                        echo '<pre>Running Laravel maintenance...\\n';
-                        require __DIR__ . '/vendor/autoload.php';
-                        $app = require_once __DIR__ . '/bootstrap/app.php';
-                        $kernel = $app->make(Illuminate\\\\Contracts\\\\Console\\\\Kernel::class);
-                        foreach (['config:clear','cache:clear','route:clear','view:clear','config:cache'] as $cmd) {
-                            echo '> php artisan ' . $cmd . '\\n';
-                            $kernel->call($cmd);
-                            echo $kernel->output();
-                        }
-                        echo '\\n✅ Done.\\n</pre>';
-                        ?>" > artisan-clear.php
+
+                        # Fail fast if creds missing
+                        [ -n "$FTP_USER" ] && [ -n "$FTP_PASS" ] || { echo "❌ Missing FTP credentials"; exit 1; }
+
+                        # Create maintenance script
+                        cat > artisan-clear.php <<'PHP'
+<?php
+error_reporting(E_ALL);
+ini_set('display_errors', 1);
+echo "<pre>Running Laravel maintenance...\n";
+require __DIR__ . '/vendor/autoload.php';
+$app = require_once __DIR__ . '/bootstrap/app.php';
+$kernel = $app->make(Illuminate\\Contracts\\Console\\Kernel::class);
+foreach (['config:clear','cache:clear','route:clear','view:clear','config:cache'] as $cmd) {
+    echo "> php artisan {$cmd}\n";
+    $kernel->call($cmd);
+    echo $kernel->output();
+}
+echo "\n✅ Done.\n</pre>";
+PHP
 
                         echo "📤 Uploading maintenance script..."
                         cat > /tmp/lftp_artisan_script <<EOF
 set ftp:ssl-allow no
-set ssl:verify-certificate no
 set ftp:passive-mode true
+set ssl:verify-certificate no
 open ftp://${AEONFREE_HOST}
 user "${FTP_USER}" "${FTP_PASS}"
 lcd $(pwd)
@@ -150,20 +158,20 @@ EOF
                         lftp -f /tmp/lftp_artisan_script
 
                         echo "⚡ Executing artisan-clear.php on site..."
-                        curl -fsS ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely."
+                        curl -fsS ${SITE_URL}/artisan-clear.php || echo "⚠️ Could not trigger artisan-clear.php remotely"
 
-                        echo "🧹 Deleting artisan-clear.php from server..."
+                        echo "🧹 Deleting maintenance script from server..."
                         cat > /tmp/lftp_delete_script <<EOF
 set ftp:ssl-allow no
-set ssl:verify-certificate no
 set ftp:passive-mode true
+set ssl:verify-certificate no
 open ftp://${AEONFREE_HOST}
 user "${FTP_USER}" "${FTP_PASS}"
 cd ${AEONFREE_PATH}
 rm artisan-clear.php
 bye
 EOF
-                        lftp -f /tmp/lftp_delete_script || echo "⚠️ Cleanup failed."
+                        lftp -f /tmp/lftp_delete_script || echo "⚠️ Cleanup failed"
                     '''
                 }
             }
@@ -172,10 +180,10 @@ EOF
 
     post {
         success {
-            echo "✅ Deployment finished successfully — files uploaded and Laravel cleared!"
+            echo '✅ Deployment finished successfully — files uploaded and Laravel cleared!'
         }
         failure {
-            echo "❌ Deployment failed — check Jenkins logs for errors."
+            echo '❌ Deployment failed — check Jenkins logs for errors.'
         }
     }
 }
