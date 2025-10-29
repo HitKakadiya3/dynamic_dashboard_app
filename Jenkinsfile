@@ -85,13 +85,18 @@ pipeline {
                         [ -n "$FTP_HOST" ] || { echo "❌ Missing FTP_HOST (FTP server)"; exit 1; }
                         [ -n "$FTP_PATH" ] || { echo "❌ Missing FTP_PATH (remote directory)"; exit 1; }
 
+                        echo "🔎 Testing FTP connectivity..."
+                        lftp -d -e "set ftp:passive-mode true; set ftp:ssl-allow yes; set ssl:verify-certificate no; set net:timeout 30; open ftp://$FTP_HOST; user '$FREEHOSTING_FTP_USER' '$FREEHOSTING_FTP_PASS'; pwd; ls; bye" || { echo "❌ FTP login/list failed"; exit 1; }
+
                         echo "📄 Preparing lftp upload script..."
                         cat > /tmp/lftp_upload_script <<EOF
 set ftp:passive-mode true
 set ftp:ssl-allow yes
 set ssl:verify-certificate no
-set net:max-retries 3
-set net:timeout 60
+set net:max-retries 5
+set net:timeout 120
+set net:reconnect-interval-base 5
+set net:reconnect-interval-multiplier 1.5
 set cmd:fail-exit true
 open ftp://$FTP_HOST
 user "$FREEHOSTING_FTP_USER" "$FREEHOSTING_FTP_PASS"
@@ -107,8 +112,8 @@ mirror -R --verbose --parallel=2 --no-perms \
 bye
 EOF
 
-                        echo "📤 Uploading files..."
-                        lftp -f /tmp/lftp_upload_script
+                        echo "📤 Uploading files (verbose)..."
+                        lftp -d -f /tmp/lftp_upload_script
 
                         echo "✅ Files uploaded"
                     '''
@@ -150,6 +155,7 @@ PHP
 set ftp:passive-mode true
 set ftp:ssl-allow yes
 set ssl:verify-certificate no
+set net:timeout 60
 open ftp://$FTP_HOST
 user "$FREEHOSTING_FTP_USER" "$FREEHOSTING_FTP_PASS"
 lcd $(pwd)
@@ -157,7 +163,7 @@ cd $FTP_PATH
 put artisan-clear.php
 bye
 EOF
-                        lftp -f /tmp/lftp_artisan_script
+                        lftp -d -f /tmp/lftp_artisan_script
 
                         echo "⚡ Executing artisan-clear.php on site..."
                         if [ -n "$SITE_URL" ]; then
@@ -171,13 +177,14 @@ EOF
 set ftp:passive-mode true
 set ftp:ssl-allow yes
 set ssl:verify-certificate no
+set net:timeout 60
 open ftp://$FTP_HOST
 user "$FREEHOSTING_FTP_USER" "$FREEHOSTING_FTP_PASS"
 cd $FTP_PATH
 rm artisan-clear.php
 bye
 EOF
-                        lftp -f /tmp/lftp_delete_script || echo "⚠️ Cleanup failed"
+                        lftp -d -f /tmp/lftp_delete_script || echo "⚠️ Cleanup failed"
                     '''
                 }
             }
